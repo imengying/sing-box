@@ -43,9 +43,9 @@ DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_T
 cd /usr/local/bin
 curl -LO "$DOWNLOAD_URL"
 
-# === 验证 ZIP 文件有效性 ===
-if ! file "sing-box-${VERSION}-linux-${ARCH}.zip" | grep -q "Zip archive data"; then
-  echo "❌ 下载失败，文件不是有效的 ZIP 压缩包。请检查网络或链接是否正确。"
+# === 简单判断 ZIP 文件是否下载成功 ===
+if [ ! -s "sing-box-${VERSION}-linux-${ARCH}.zip" ]; then
+  echo "❌ 下载失败，ZIP 文件为空，可能是 URL 错误或网络问题。"
   exit 1
 fi
 
@@ -130,15 +130,14 @@ systemctl daemon-reload
 systemctl enable sing-box
 systemctl restart sing-box
 
-# === 打印链接 ===
-
-# 自动检测公网 IP（你也可以手动指定）
+# === 自动获取服务器公网 IP（如失败则提示手动填写） ===
 DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
 if [ -z "$DOMAIN_OR_IP" ]; then
-  echo "⚠️ 无法自动检测公网 IP，请手动修改 DOMAIN_OR_IP 变量为你的服务器 IP 或域名"
+  echo "⚠️ 无法自动检测公网 IP，请手动修改为你的服务器域名或 IP"
   DOMAIN_OR_IP="yourdomain.com"
 fi
 
+# === 打印链接 ===
 VLESS_URL="vless://${UUID}@${DOMAIN_OR_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
 
 echo ""
