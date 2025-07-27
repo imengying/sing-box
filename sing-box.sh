@@ -36,11 +36,19 @@ else
 fi
 
 # === 下载最新版本的 sing-box ===
-VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
-DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION}/sing-box-${VERSION}-linux-${ARCH}.zip"
+VERSION_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name') # v1.11.15
+VERSION=${VERSION_TAG#v}  # 去掉 v，变成 1.11.15
+DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_TAG}/sing-box-${VERSION}-linux-${ARCH}.zip"
 
 cd /usr/local/bin
 curl -LO "$DOWNLOAD_URL"
+
+# === 验证 ZIP 文件有效性 ===
+if ! file "sing-box-${VERSION}-linux-${ARCH}.zip" | grep -q "Zip archive data"; then
+  echo "❌ 下载失败，文件不是有效的 ZIP 压缩包。请检查网络或链接是否正确。"
+  exit 1
+fi
+
 unzip "sing-box-${VERSION}-linux-${ARCH}.zip"
 mv sing-box-${VERSION}-linux-${ARCH}/sing-box .
 chmod +x sing-box
