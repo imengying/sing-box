@@ -13,11 +13,11 @@
 
 请使用 `root` 权限运行以下命令：
 
-国内主机
+国外主机
 ```bash
 curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh | bash
 ```
-国外主机
+国内主机
 ```bash
 curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh | bash
 ```
