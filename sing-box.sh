@@ -131,14 +131,20 @@ systemctl enable sing-box
 systemctl restart sing-box
 
 # === 打印链接 ===
-DOMAIN_OR_IP="yourdomain.com"  # <<< 请修改为你自己的域名或服务器IP
+
+# 自动检测公网 IP（你也可以手动指定）
+DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
+if [ -z "$DOMAIN_OR_IP" ]; then
+  echo "⚠️ 无法自动检测公网 IP，请手动修改 DOMAIN_OR_IP 变量为你的服务器 IP 或域名"
+  DOMAIN_OR_IP="yourdomain.com"
+fi
 
 VLESS_URL="vless://${UUID}@${DOMAIN_OR_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
 
 echo ""
 echo "✅ sing-box 安装并运行成功！"
 echo ""
-echo "📌 请将以下 VLESS 链接导入到你的客户端（替换域名）："
+echo "📌 请将以下 VLESS 链接导入到你的客户端："
 echo "----------------------------------------------------------"
 echo "$VLESS_URL"
 echo "----------------------------------------------------------"
