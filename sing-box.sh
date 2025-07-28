@@ -12,13 +12,13 @@ fi
 if [ -x "$(command -v apt)" ]; then
   PKG_MANAGER="apt"
   $PKG_MANAGER update -y
-  $PKG_MANAGER install -y curl wget tar jq uuid-runtime
+  $PKG_MANAGER install -y tar jq uuid-runtime
 elif [ -x "$(command -v dnf)" ]; then
   PKG_MANAGER="dnf"
-  $PKG_MANAGER install -y curl wget tar jq util-linux
+  $PKG_MANAGER install -y tar jq util-linux
 elif [ -x "$(command -v yum)" ]; then
   PKG_MANAGER="yum"
-  $PKG_MANAGER install -y curl wget tar jq util-linux
+  $PKG_MANAGER install -y tar jq util-linux
 else
   echo "❌ 不支持的系统类型，未找到 apt/dnf/yum"
   exit 1
