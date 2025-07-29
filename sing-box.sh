@@ -207,7 +207,6 @@ setup_systemd_service() {
     cat > /etc/systemd/system/sing-box.service <<EOF
 [Unit]
 Description=sing-box service
-Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
 
 [Service]
