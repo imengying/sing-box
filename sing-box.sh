@@ -51,7 +51,11 @@ VERSION=${VERSION_TAG#v}
 FILENAME="sing-box-${VERSION}-linux-${ARCH}.tar.gz"
 DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_TAG}/${FILENAME}"
 
-cd /usr/local/bin
+# 创建安装目录（如果不存在）
+INSTALL_DIR="/etc/sing-box" # 修改后的安装目录
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR" # 进入新的安装目录
+
 curl -LO "$DOWNLOAD_URL"
 
 # === 校验下载是否成功 ===
@@ -65,18 +69,16 @@ mv sing-box-${VERSION}-linux-${ARCH}/sing-box .
 chmod +x sing-box
 rm -rf sing-box-${VERSION}-linux-${ARCH} "$FILENAME"
 
-# === 创建配置目录 ===
-mkdir -p /etc/sing-box
-
 # === 生成 Reality 密钥和 UUID ===
-KEYS=$(/usr/local/bin/sing-box generate reality-keypair)
+# 可执行文件现在在 /etc/sing-box，所以需要正确引用它
+KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
 # === 写入配置文件 ===
-cat > /etc/sing-box/config.json <<EOF
+cat > "$INSTALL_DIR/config.json" <<EOF
 {
   "inbounds": [
     {
@@ -124,7 +126,7 @@ Description=sing-box service
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
+ExecStart=${INSTALL_DIR}/sing-box run -c ${INSTALL_DIR}/config.json
 Restart=on-failure
 User=nobody
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
