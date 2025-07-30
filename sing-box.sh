@@ -13,14 +13,6 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-# === 检查必要命令 ===
-for cmd in curl jq tar uuidgen; do
-  if ! command -v $cmd >/dev/null 2>&1; then
-    echo "❌ 缺少必要命令: $cmd"
-    exit 1
-  fi
-done
-
 # === 检查 sing-box 是否已运行 ===
 if systemctl is-active --quiet sing-box; then
   echo "⚠️ sing-box 服务已在运行，是否继续安装？[y/N]"
@@ -28,20 +20,28 @@ if systemctl is-active --quiet sing-box; then
   [[ "$choice" != "y" && "$choice" != "Y" ]] && exit 0
 fi
 
-# === 安装依赖 ===
+# === 检查必要命令（curl 不检查）===
+for cmd in jq tar uuidgen; do
+  if ! command -v $cmd >/dev/null 2>&1; then
+    echo "❌ 缺少必要命令: $cmd"
+    exit 1
+  fi
+done
+
+# === 安装依赖（排除 curl）===
 if [ -x "$(command -v apt)" ]; then
   PKG_MANAGER="apt"
   $PKG_MANAGER update -y
-  $PKG_MANAGER install -y tar jq uuid-runtime curl
+  $PKG_MANAGER install -y tar jq uuid-runtime
 elif [ -x "$(command -v dnf)" ]; then
   PKG_MANAGER="dnf"
-  $PKG_MANAGER install -y tar jq util-linux curl
+  $PKG_MANAGER install -y tar jq util-linux
 else
   echo "❌ 不支持的系统类型，未找到 apt/dnf/yum"
   exit 1
 fi
 
-# === 确定架构 ===
+# === 检测系统架构 ===
 UNAME_ARCH=$(uname -m)
 case "$UNAME_ARCH" in
   x86_64) ARCH="amd64" ;;
@@ -64,7 +64,7 @@ case "$UNAME_ARCH" in
     ;;
 esac
 
-# === 下载最新版本 sing-box ===
+# === 下载 sing-box 最新版本 ===
 VERSION_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
 VERSION=${VERSION_TAG#v}
 FILENAME="sing-box-${VERSION}-linux-${ARCH}.tar.gz"
@@ -85,7 +85,7 @@ mv sing-box-${VERSION}-linux-${ARCH}/sing-box .
 chmod +x sing-box
 rm -rf sing-box-${VERSION}-linux-${ARCH} "$FILENAME"
 
-# === 生成密钥和 UUID ===
+# === 生成密钥与 UUID ===
 KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
@@ -136,7 +136,7 @@ jq -n --arg uuid "$UUID" \
 }
 ' > "$INSTALL_DIR/config.json"
 
-# === 写入 systemd 启动文件，增强安全限制 ===
+# === 写入 systemd 启动文件（增强安全性） ===
 cat > /etc/systemd/system/sing-box.service <<EOF
 [Unit]
 Description=sing-box service
