@@ -20,7 +20,7 @@ if systemctl is-active --quiet sing-box; then
   [[ "$choice" != "y" && "$choice" != "Y" ]] && exit 0
 fi
 
-# === 检查必要命令（curl 不检查）===
+# === 检查必要命令 ===
 for cmd in jq tar uuidgen; do
   if ! command -v $cmd >/dev/null 2>&1; then
     echo "❌ 缺少必要命令: $cmd"
@@ -28,7 +28,7 @@ for cmd in jq tar uuidgen; do
   fi
 done
 
-# === 安装依赖（排除 curl）===
+# === 安装依赖 ===
 if [ -x "$(command -v apt)" ]; then
   PKG_MANAGER="apt"
   $PKG_MANAGER update -y
@@ -37,7 +37,7 @@ elif [ -x "$(command -v dnf)" ]; then
   PKG_MANAGER="dnf"
   $PKG_MANAGER install -y tar jq util-linux
 else
-  echo "❌ 不支持的系统类型，未找到 apt/dnf/yum"
+  echo "❌ 不支持的系统类型，未找到 apt/dnf"
   exit 1
 fi
 
