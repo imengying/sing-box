@@ -52,7 +52,7 @@ FILENAME="sing-box-${VERSION}-linux-${ARCH}.tar.gz"
 DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_TAG}/${FILENAME}"
 
 # 创建安装目录（如果不存在）
-INSTALL_DIR="/etc/sing-box" # 修改后的安装目录
+INSTALL_DIR="/etc/sing-box"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR" # 进入新的安装目录
 
