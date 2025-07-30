@@ -15,14 +15,13 @@ fi
 
 # === 检查 sing-box 是否已运行 ===
 if systemctl is-active --quiet sing-box; then
-  echo "⚠️ sing-box 服务已在运行，是否继续安装？[y/N]"
-  read -r choice
+  read -r -p "⚠️ sing-box 服务已在运行，是否继续安装？[y/N] " choice
   [[ "$choice" != "y" && "$choice" != "Y" ]] && exit 0
 fi
 
 # === 检查必要命令 ===
 for cmd in jq tar uuidgen; do
-  if ! command -v $cmd >/dev/null 2>&1; then
+  if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "❌ 缺少必要命令: $cmd"
     exit 1
   fi
@@ -93,11 +92,7 @@ UUID=$(uuidgen)
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
 # === 使用 jq 生成配置文件 ===
-jq -n --arg uuid "$UUID" \
-      --arg private_key "$PRIVATE_KEY" \
-      --arg sni "$SNI" \
-      --argjson port "$PORT" \
-      --arg public_key "$PUBLIC_KEY" '
+jq -n --arg uuid "$UUID"       --arg private_key "$PRIVATE_KEY"       --arg sni "$SNI"       --argjson port "$PORT"       --arg public_key "$PUBLIC_KEY" '
 {
   inbounds: [
     {
