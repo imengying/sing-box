@@ -4,14 +4,14 @@
 
 - ✅ VLESS + Reality + Vision 流量
 - ✅ 自动生成配置、端口、UUID、密钥
-- ✅ 兼容 Debian/Ubuntu 和 RHEL/Fedora（使用 `apt` 或 `dnf`）
-- ✅ 自动配置 systemd 服务
+- ✅ 兼容 Debian/Ubuntu、Alpine 和 RHEL/Fedora（使用 `apt` 或 `dnf`或 `apk`）
+- ✅ 自动配置 systemd 服务或OpenRC服务
 
 ---
 
 ## 📥 快速安装
 
-请使用 `root` 权限运行以下命令：
+Debian/Ubuntu和 RHEL/Fedora请使用 `root` 权限运行以下命令：
 
 国外主机
 ```bash
@@ -21,17 +21,29 @@ curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh 
 ```bash
 curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh | bash
 ```
+
+Alpine使用以下命令
+
+国外主机
+```bash
+curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/sing-box-alpine.sh | bash
+```
+国内主机
+```bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/sing-box-alpine.sh | bash
+```
+
 ---
 ### 📂 安装内容
 
 该脚本将自动完成以下工作：
 
-- 安装必要依赖（curl、wget、jq、uuidgen、unzip 等）
+- 安装必要依赖（curl、jq、uuidgen、unzip 等）
 - 下载最新版 sing-box
 - 生成 Reality 密钥对
 - 生成 UUID 和监听端口
 - 写入默认配置文件到 `/etc/sing-box/config.json`
-- 创建 systemd 服务并启用
+- 创建 systemd或OpenRC 服务并启用
 
 ### 🔐 VLESS Reality 配置信息
 
@@ -51,6 +63,12 @@ vless://<UUID>@<IP或域名>:<PORT>?encryption=none&flow=xtls-rprx-vision&securi
 systemctl status sing-box     # 查看运行状态
 systemctl restart sing-box    # 重启服务
 systemctl stop sing-box       # 停止服务
+```
+使用 OpenRC 管理 sing-box 服务：
+```bash
+状态查看:  rc-service sing-box status
+重启服务:  rc-service sing-box restart
+停止服务:  rc-service sing-box stop
 ```
 
 ### ⚙️ 修改配置
