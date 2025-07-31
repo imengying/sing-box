@@ -13,31 +13,45 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
+# === 检测包管理器并定义安装命令 ===
+if [ -x "$(command -v apt)" ]; then
+  PKG_MANAGER="apt"
+  INSTALL_CMD="apt install -y"
+  UPDATE_CMD="apt update -y"
+  DEP_PKGS=(tar jq uuid-runtime)
+elif [ -x "$(command -v dnf)" ]; then
+  PKG_MANAGER="dnf"
+  INSTALL_CMD="dnf install -y"
+  UPDATE_CMD="dnf makecache"
+  DEP_PKGS=(tar jq util-linux)
+else
+  echo "❌ 不支持的系统类型，未找到 apt/dnf"
+  exit 1
+fi
+
+# === 更新软件包索引 ===
+echo "🔍 正在更新软件包索引..."
+$UPDATE_CMD
+
+# === 安装缺失依赖 ===
+for cmd in tar jq uuidgen; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "📦 安装缺失组件: $cmd"
+    case "$cmd" in
+      uuidgen)
+        $INSTALL_CMD uuid-runtime || $INSTALL_CMD util-linux
+        ;;
+      *)
+        $INSTALL_CMD "$cmd"
+        ;;
+    esac
+  fi
+done
+
 # === 检查 sing-box 是否已运行 ===
 if systemctl is-active --quiet sing-box; then
   read -r -p "⚠️ sing-box 服务已在运行，是否继续安装？[y/N] " choice
   [[ "$choice" != "y" && "$choice" != "Y" ]] && exit 0
-fi
-
-# === 检查必要命令 ===
-for cmd in jq tar uuidgen; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "❌ 缺少必要命令: $cmd"
-    exit 1
-  fi
-done
-
-# === 安装依赖 ===
-if [ -x "$(command -v apt)" ]; then
-  PKG_MANAGER="apt"
-  $PKG_MANAGER update -y
-  $PKG_MANAGER install -y tar jq uuid-runtime
-elif [ -x "$(command -v dnf)" ]; then
-  PKG_MANAGER="dnf"
-  $PKG_MANAGER install -y tar jq util-linux
-else
-  echo "❌ 不支持的系统类型，未找到 apt/dnf"
-  exit 1
 fi
 
 # === 检测系统架构 ===
