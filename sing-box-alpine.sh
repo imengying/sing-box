@@ -13,22 +13,29 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-# === 检查 sing-box 是否已运行 ===
+# === 检查 sing-box 是否已存在 ===
 if [ -f /etc/init.d/sing-box ]; then
   echo "⚠️ sing-box 服务已存在，是否继续安装？[y/N]"
   read -r choice
   [ "$choice" != "y" ] && [ "$choice" != "Y" ] && exit 0
 fi
 
-# === 安装依赖 ===
+# === 更新软件包索引 ===
+echo "🔍 正在更新软件包索引..."
 apk update
-apk add curl jq tar util-linux
 
-# === 检查必要命令 ===
+# === 安装缺失组件（忽略 curl）===
 for cmd in jq tar uuidgen; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "❌ 缺少必要命令: $cmd"
-    exit 1
+    echo "📦 正在安装缺失命令: $cmd"
+    case "$cmd" in
+      uuidgen)
+        apk add util-linux
+        ;;
+      *)
+        apk add "$cmd"
+        ;;
+    esac
   fi
 done
 
