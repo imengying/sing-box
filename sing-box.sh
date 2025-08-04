@@ -105,19 +105,27 @@ PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
-# === 使用 jq 生成配置文件 ===
-jq -n --arg uuid "$UUID"       --arg private_key "$PRIVATE_KEY"       --arg sni "$SNI"       --argjson port "$PORT"       --arg public_key "$PUBLIC_KEY" '
+# === 使用 jq 生成配置文件（结构与提供模板一致）===
+jq -n \
+  --arg uuid "$UUID" \
+  --arg private_key "$PRIVATE_KEY" \
+  --arg sni "$SNI" \
+  --arg listen "::" \
+  --arg type "vless" \
+  --arg tag "vless-reality" \
+  --argjson port "$PORT" \
+  '
 {
   inbounds: [
     {
-      tag: "VLESS-REALITY-\($port).json",
-      type: "vless",
-      listen: "::",
+      type: $type,
+      tag: $tag,
+      listen: $listen,
       listen_port: $port,
       users: [
         {
-          flow: "xtls-rprx-vision",
-          uuid: $uuid
+          uuid: $uuid,
+          flow: "xtls-rprx-vision"
         }
       ],
       tls: {
@@ -129,23 +137,21 @@ jq -n --arg uuid "$UUID"       --arg private_key "$PRIVATE_KEY"       --arg sni 
             server: $sni,
             server_port: 443
           },
-          private_key: $private_key,
-          short_id: [""]
+          private_key: $private_key
         }
       }
     }
   ],
   outbounds: [
-    { type: "direct" },
     {
-      tag: "public_key_\($public_key)",
-      type: "direct"
+      type: "direct",
+      tag: "direct"
     }
   ]
 }
 ' > "$INSTALL_DIR/config.json"
 
-# === 写入 systemd 启动文件（增强安全性） ===
+# === 写入 systemd 启动文件 ===
 cat > /etc/systemd/system/sing-box.service <<EOF
 [Unit]
 Description=sing-box service
