@@ -13,7 +13,7 @@ if [ "$(id -u)" != "0" ]; then
   exit 1
 fi
 
-# === 检查 sing-box 是否已运行 ===
+# === 检查 sing-box 是否已存在 ===
 if [ -f /etc/init.d/sing-box ]; then
   echo "⚠️ sing-box 服务已存在，是否继续安装？[y/N]"
   read -r choice
@@ -80,41 +80,47 @@ PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
-# === 使用 jq 生成配置文件 ===
-jq -n --arg uuid "$UUID" --arg private_key "$PRIVATE_KEY" --arg sni "$SNI" --argjson port "$PORT" --arg public_key "$PUBLIC_KEY" '
+# === 使用 jq 生成结构化配置 ===
+jq -n \
+  --arg uuid "$UUID" \
+  --arg private_key "$PRIVATE_KEY" \
+  --arg sni "$SNI" \
+  --arg listen "::" \
+  --arg type "vless" \
+  --arg tag "vless-reality" \
+  --argjson port "$PORT" \
+  '
 {
-  inbounds: [
+  "inbounds": [
     {
-      tag: "VLESS-REALITY-\($port).json",
-      type: "vless",
-      listen: "::",
-      listen_port: $port,
-      users: [
+      "type": $type,
+      "tag": $tag,
+      "listen": $listen,
+      "listen_port": $port,
+      "users": [
         {
-          flow: "xtls-rprx-vision",
-          uuid: $uuid
+          "uuid": $uuid,
+          "flow": "xtls-rprx-vision"
         }
       ],
-      tls: {
-        enabled: true,
-        server_name: $sni,
-        reality: {
-          enabled: true,
-          handshake: {
-            server: $sni,
-            server_port: 443
+      "tls": {
+        "enabled": true,
+        "server_name": $sni,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": $sni,
+            "server_port": 443
           },
-          private_key: $private_key,
-          short_id: [""]
+          "private_key": $private_key
         }
       }
     }
   ],
-  outbounds: [
-    { type: "direct" },
+  "outbounds": [
     {
-      tag: "public_key_\($public_key)",
-      type: "direct"
+      "type": "direct",
+      "tag": "direct"
     }
   ]
 }
