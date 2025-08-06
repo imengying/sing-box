@@ -73,14 +73,18 @@ systemctl stop sing-box       # 停止服务
 
 ### ⚙️ 修改配置
 
-脚本默认配置文件路径为：
+脚本默认配置文件路径和服务文件路径如下：
 
-```
-/etc/sing-box/config.json
-```
+- 配置文件：`/etc/sing-box/config.json`
+- systemd 服务文件：`/etc/systemd/system/sing-box.service`
+- OpenRC 服务文件（Alpine）：`/etc/init.d/sing-box`
 
 你可以手动编辑配置文件后执行以下命令使其生效：
 
 ```bash
 systemctl restart sing-box
+```
+或（Alpine/OpenRC 系统）
+```bash
+rc-service sing-box restart
 ```
