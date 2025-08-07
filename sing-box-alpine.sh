@@ -78,6 +78,7 @@ KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
+
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
 # === 使用 jq 生成结构化配置 ===
@@ -85,6 +86,7 @@ jq -n \
   --arg uuid "$UUID" \
   --arg private_key "$PRIVATE_KEY" \
   --arg sni "$SNI" \
+  --arg sni2 "www.apple.com" \
   --arg listen "::" \
   --arg type "vless" \
   --arg tag "vless-reality" \
@@ -109,7 +111,7 @@ jq -n \
         "reality": {
           "enabled": true,
           "handshake": {
-            "server": $sni,
+            "server": [$sni, $sni2],
             "server_port": 443
           },
           "private_key": $private_key

@@ -4,7 +4,9 @@ set -e
 
 # === 基本设置 ===
 INSTALL_DIR="/etc/sing-box"
+# Reality SNI 域名，可自定义多个提升隐蔽性
 SNI="updates.cdn-apple.com"
+SNI_EXTRA="www.apple.com"
 REALITY_DOMAIN="$SNI"
 
 # === 检查 root 权限 ===
@@ -110,6 +112,7 @@ jq -n \
   --arg uuid "$UUID" \
   --arg private_key "$PRIVATE_KEY" \
   --arg sni "$SNI" \
+  --arg sni_extra "$SNI_EXTRA" \
   --arg listen "::" \
   --arg type "vless" \
   --arg tag "vless-reality" \
@@ -134,7 +137,7 @@ jq -n \
         reality: {
           enabled: true,
           handshake: {
-            server: $sni,
+            server: [$sni, $sni_extra],
             server_port: 443
           },
           private_key: $private_key
