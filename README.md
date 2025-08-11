@@ -18,24 +18,24 @@
 
 **国外主机**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh | bash
 ```
 
 **国内主机**
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/sing-box.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh | bash
 ```
 
 ### Alpine 系统
 
 **国外主机**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/sing-box-alpine.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/main/sing-box-alpine.sh | bash
 ```
 
 **国内主机**
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/sing-box-alpine.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/main/sing-box-alpine.sh | bash
 ```
 
 ---
@@ -46,12 +46,12 @@ curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null02
 
 **国外主机**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/null0218/sing-box/main/update-sing-box.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/main/update-sing-box.sh | bash
 ```
 
 **国内主机**
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/null0218/sing-box/main/update-sing-box.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/main/update-sing-box.sh | bash
 ```
 
 
