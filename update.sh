@@ -4,7 +4,6 @@ set -e
 
 # === 基本设置 ===
 INSTALL_DIR="/etc/sing-box"
-BACKUP_DIR="/etc/sing-box/backup"
 
 # === 检查 root 权限 ===
 if [ "$(id -u)" != "0" ]; then
@@ -88,11 +87,6 @@ case "$SERVICE_TYPE" in
     ;;
 esac
 
-# === 备份当前版本 ===
-echo "💾 备份当前版本..."
-mkdir -p "$BACKUP_DIR"
-cp "$INSTALL_DIR/sing-box" "$BACKUP_DIR/sing-box-$CURRENT_VERSION-$(date +%Y%m%d-%H%M%S)"
-
 # === 下载新版本 ===
 FILENAME="sing-box-${LATEST_VERSION}-linux-${ARCH}.tar.gz"
 DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_TAG}/${FILENAME}"
@@ -123,8 +117,7 @@ rm -rf "/tmp/sing-box-${LATEST_VERSION}-linux-${ARCH}" "/tmp/$FILENAME"
 # === 验证新版本 ===
 NEW_VERSION=$("$INSTALL_DIR/sing-box" version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
 if [ "$NEW_VERSION" != "$LATEST_VERSION" ]; then
-  echo "❌ 版本验证失败，正在恢复..."
-  cp "$BACKUP_DIR/sing-box-$CURRENT_VERSION"* "$INSTALL_DIR/sing-box" 2>/dev/null || echo "⚠️ 备份恢复失败"
+  echo "❌ 版本验证失败，请检查安装过程"
   case "$SERVICE_TYPE" in
     systemd) systemctl start sing-box ;;
     openrc) rc-service sing-box start ;;
