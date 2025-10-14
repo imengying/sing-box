@@ -105,7 +105,7 @@ PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
 PORT=$(( ( RANDOM % 64510 )  + 1025 ))
 
-# === 使用 jq 生成配置文件（结构与提供模板一致）===
+# === 使用 jq 生成配置文件 ===
 jq -n \
   --arg uuid "$UUID" \
   --arg private_key "$PRIVATE_KEY" \
@@ -180,15 +180,24 @@ systemctl daemon-reload
 systemctl enable sing-box
 systemctl restart sing-box
 
-# === 获取公网 IP ===
+# === 获取公网 IP（支持 IPv4 / IPv6） ===
 DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
+
 if [ -z "$DOMAIN_OR_IP" ]; then
   echo "⚠️ 无法自动检测公网 IP，请手动替换为你的域名或 IP"
   DOMAIN_OR_IP="yourdomain.com"
 fi
 
+# === 检测 IPv6 并加上 [] ===
+if [[ "$DOMAIN_OR_IP" == *:* ]]; then
+  # IPv6 地址检测（包含冒号）
+  FORMATTED_IP="[${DOMAIN_OR_IP}]"
+else
+  FORMATTED_IP="$DOMAIN_OR_IP"
+fi
+
 # === 输出 VLESS 链接 ===
-VLESS_URL="vless://${UUID}@${DOMAIN_OR_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
 
 echo ""
 echo "✅ sing-box 安装并运行成功！"
