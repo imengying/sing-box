@@ -146,18 +146,33 @@ chmod +x /etc/init.d/sing-box
 rc-update add sing-box default
 rc-service sing-box restart
 
-# === 获取公网 IP ===
+# === 获取公网 IP（支持 IPv6） ===
 DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
+
 if [ -z "$DOMAIN_OR_IP" ]; then
   echo "⚠️ 无法自动检测公网 IP，请手动替换为你的域名或 IP"
   DOMAIN_OR_IP="yourdomain.com"
 fi
 
+# === 检测 IPv6 并加上 [] ===
+if echo "$DOMAIN_OR_IP" | grep -q ":"; then
+  FORMATTED_IP="[${DOMAIN_OR_IP}]"
+else
+  FORMATTED_IP="$DOMAIN_OR_IP"
+fi
+
 # === 输出 VLESS 链接 ===
-VLESS_URL="vless://${UUID}@${DOMAIN_OR_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
 
 echo ""
 echo "✅ sing-box 安装并运行成功！"
+echo ""
+echo "📌 检测到公网 IP: $DOMAIN_OR_IP"
+if echo "$DOMAIN_OR_IP" | grep -q ":"; then
+  echo "🌐 类型: IPv6"
+else
+  echo "🌐 类型: IPv4"
+fi
 echo ""
 echo "📌 请将以下 VLESS 链接导入客户端："
 echo "----------------------------------------------------------"
