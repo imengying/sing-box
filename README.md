@@ -1,3 +1,14 @@
+> **更新（合并版）**：脚本已合并为 `sbx.sh`，提供 **配置** 和 **更新** 两个选项，并自动识别系统（Alpine / Debian / Ubuntu / RHEL / Fedora）。配置输出中的 fingerprint 已从 `chrome` 调整为 `firefox`。
+
+## 🚀 快速开始（合并版）
+```bash
+# 1) 下载并进入目录
+# unzip sing-box-main.zip && cd sing-box-main
+# 2) 运行合并脚本（需 root）
+bash sbx.sh
+# 然后在菜单中选择：1) 配置  或  2) 更新
+```
+
 # 🧊 sing-box 一键安装脚本（VLESS + Reality）
 
 这是一个用于自动部署 [sing-box](https://github.com/SagerNet/sing-box) 服务端的 Shell 脚本，支持：
@@ -30,13 +41,13 @@
 **国外主机**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（合并脚本） | bash
 ```
 
 **国内主机**
 
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（合并脚本） | bash
 ```
 
 ### Alpine 系统
@@ -44,13 +55,13 @@ curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengy
 **国外主机**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box-alpine.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（合并脚本，自动识别 Alpine） | bash
 ```
 
 **国内主机**
 
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box-alpine.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（合并脚本，自动识别 Alpine） | bash
 ```
 
 ---
@@ -62,13 +73,13 @@ curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengy
 **国外主机**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（选择“更新”） | bash
 ```
 
 **国内主机**
 
 ```bash
-curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
+curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sbx.sh（选择“更新”） | bash
 ```
 
 ### 更新特性
@@ -100,7 +111,7 @@ curl -fsSL https://www.imengying.eu.org/https://raw.githubusercontent.com/imengy
 脚本执行完成后会输出一条形如以下格式的 VLESS 链接：
 
 ```
-vless://<UUID>@<IP或域名>:<PORT>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=chrome&pbk=<PublicKey>#VLESS-REALITY
+vless://<UUID>@<IP或域名>:<PORT>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=firefox&pbk=<PublicKey>#VLESS-REALITY
 ```
 
 📌 **IPv6 输出示例：**
