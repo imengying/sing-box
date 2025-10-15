@@ -162,7 +162,7 @@ else
 fi
 
 # === 输出 VLESS 链接 ===
-VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
 
 echo ""
 echo "✅ sing-box 安装并运行成功！"

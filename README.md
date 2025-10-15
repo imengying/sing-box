@@ -76,7 +76,7 @@ curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/
 脚本执行完成后会输出一条形如以下格式的 VLESS 链接：
 
 ```
-vless://<UUID>@<IP或域名>:<PORT>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=chrome&pbk=<PublicKey>#VLESS-REALITY
+vless://<UUID>@<IP或域名>:<PORT>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=firefox&pbk=<PublicKey>#VLESS-REALITY
 ```
 
 📌 **IPv6 输出示例：**
