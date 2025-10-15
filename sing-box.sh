@@ -1,4 +1,5 @@
 #!/bin/sh
+# sing-box 一键管理脚本（修正版）
 
 set -e
 
@@ -22,8 +23,95 @@ detect_system() {
   echo "default"
 }
 
+# === 通用辅助函数 ===
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+get_service_type() {
+  if command_exists systemctl; then
+    echo "systemd"
+    return 0
+  fi
+  if [ -f /etc/init.d/sing-box ]; then
+    echo "openrc"
+    return 0
+  fi
+  echo ""
+}
+
+restart_service() {
+  stype="$(get_service_type)"
+  case "$stype" in
+    systemd)
+      systemctl restart sing-box || return 1
+      sleep 1
+      systemctl is-active --quiet sing-box
+      ;;
+    openrc)
+      rc-service sing-box restart || return 1
+      rc-service sing-box status >/dev/null 2>&1
+      ;;
+    *)
+      return 2
+      ;;
+  esac
+}
+
+ensure_jq() {
+  if command_exists jq; then
+    return 0
+  fi
+  if command_exists apk; then
+    apk update >/dev/null 2>&1 || true
+    apk add jq >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists apt-get; then
+    apt-get update >/dev/null 2>&1 || true
+    apt-get install -y jq >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists apt; then
+    apt update >/dev/null 2>&1 || true
+    apt install -y jq >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists dnf; then
+    dnf makecache >/dev/null 2>&1 || true
+    dnf install -y jq >/dev/null 2>&1 || true
+    return 0
+  fi
+}
+
+ensure_curl() {
+  if command_exists curl; then
+    return 0
+  fi
+  if command_exists apk; then
+    apk update >/dev/null 2>&1 || true
+    apk add curl >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists apt-get; then
+    apt-get update >/dev/null 2>&1 || true
+    apt-get install -y curl >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists apt; then
+    apt update >/dev/null 2>&1 || true
+    apt install -y curl >/dev/null 2>&1 || true
+    return 0
+  fi
+  if command_exists dnf; then
+    dnf makecache >/dev/null 2>&1 || true
+    dnf install -y curl >/dev/null 2>&1 || true
+    return 0
+  fi
+}
+
 run_config() {
-  local sys="$(detect_system)"
+  sys="$(detect_system)"
   echo "🧭 系统识别: ${sys}"
   echo "🛠️ 正在执行配置..."
   if [ "$sys" = "alpine" ]; then
@@ -36,7 +124,6 @@ set -e
 # === 基本设置 ===
 INSTALL_DIR="/etc/sing-box"
 SNI="updates.cdn-apple.com"
-REALITY_DOMAIN="$SNI"
 
 # === 检查 root 权限 ===
 if [ "$(id -u)" != "0" ]; then
@@ -56,7 +143,7 @@ apk update
 apk add curl jq tar util-linux
 
 # === 检查必要命令 ===
-for cmd in jq tar uuidgen; do
+for cmd in curl jq tar uuidgen; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "❌ 缺少必要命令: $cmd"
     exit 1
@@ -100,16 +187,20 @@ if [ ! -s "$FILENAME" ]; then
 fi
 
 tar -xzf "$FILENAME"
-mv sing-box-${VERSION}-linux-${ARCH}/sing-box .
+mv "sing-box-${VERSION}-linux-${ARCH}/sing-box" .
 chmod +x sing-box
-rm -rf sing-box-${VERSION}-linux-${ARCH} "$FILENAME"
+rm -rf "sing-box-${VERSION}-linux-${ARCH}" "$FILENAME"
 
 # === 生成密钥与 UUID ===
 KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
-PORT=$(( ( RANDOM % 64510 )  + 1025 ))
+
+# 随机端口（1025-65535），兼容 /bin/sh（无 $RANDOM）
+rand_u16=$(od -v -N2 -tu2 /dev/urandom 2>/dev/null | awk 'NR==1{print $2}')
+[ -z "$rand_u16" ] && rand_u16=$(date +%s)
+PORT=$(( 1025 + (rand_u16 % 64510) ))
 
 # === 使用 jq 生成结构化配置 ===
 jq -n \
@@ -165,8 +256,9 @@ name="sing-box"
 description="sing-box service"
 command="${INSTALL_DIR}/sing-box"
 command_args="run -c ${INSTALL_DIR}/config.json"
-pidfile="/var/run/sing-box.pid"
 command_background="yes"
+pidfile="/run/sing-box.pid"
+start_stop_daemon_args="--make-pidfile --pidfile \${pidfile}"
 
 depend() {
   need net
@@ -177,43 +269,12 @@ chmod +x /etc/init.d/sing-box
 rc-update add sing-box default
 rc-service sing-box restart
 
-# === 获取公网 IP（支持 IPv6） ===
+# === 输出 VLESS 链接（自动处理 IPv6 包裹） ===
 DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
-
-if [ -z "$DOMAIN_OR_IP" ]; then
-  echo "⚠️ 无法自动检测公网 IP，请手动替换为你的域名或 IP"
-  DOMAIN_OR_IP="yourdomain.com"
-fi
-
-# === 检测 IPv6 并加上 [] ===
-if echo "$DOMAIN_OR_IP" | grep -q ":"; then
-  FORMATTED_IP="[${DOMAIN_OR_IP}]"
-else
-  FORMATTED_IP="$DOMAIN_OR_IP"
-fi
-
-# === 输出 VLESS 链接 ===
+[ -z "$DOMAIN_OR_IP" ] && DOMAIN_OR_IP="yourdomain.com"
+if echo "$DOMAIN_OR_IP" | grep -q ":"; then FORMATTED_IP="[$DOMAIN_OR_IP]"; else FORMATTED_IP="$DOMAIN_OR_IP"; fi
 VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
-
-echo ""
-echo "✅ sing-box 安装并运行成功！"
-echo ""
-echo "📌 检测到公网 IP: $DOMAIN_OR_IP"
-if echo "$DOMAIN_OR_IP" | grep -q ":"; then
-  echo "🌐 类型: IPv6"
-else
-  echo "🌐 类型: IPv4"
-fi
-echo ""
-echo "📌 请将以下 VLESS 链接导入客户端："
-echo "----------------------------------------------------------"
-echo "$VLESS_URL"
-echo "----------------------------------------------------------"
-echo ""
-echo "🔧 使用 rc-service 管理 sing-box："
-echo "状态查看:  rc-service sing-box status"
-echo "重启服务:  rc-service sing-box restart"
-echo "停止服务:  rc-service sing-box stop"
+printf '✅ sing-box 安装并运行成功！\n%s\n' "$VLESS_URL"
 
 SBX_ALPINE_EOF
   else
@@ -226,7 +287,6 @@ set -e
 # === 基本设置 ===
 INSTALL_DIR="/etc/sing-box"
 SNI="updates.cdn-apple.com"
-REALITY_DOMAIN="$SNI"
 
 # === 检查 root 权限 ===
 if [ "$(id -u)" != "0" ]; then
@@ -235,18 +295,18 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # === 检测包管理器并定义安装命令 ===
-if [ -x "$(command -v apt)" ]; then
-  PKG_MANAGER="apt"
-  INSTALL_CMD="apt install -y"
-  UPDATE_CMD="apt update -y"
-  DEP_PKGS=(tar jq uuid-runtime)
+if [ -x "$(command -v apt-get)" ]; then
+  PKG_MANAGER="apt-get"
+  INSTALL_CMD="apt-get install -y"
+  UPDATE_CMD="apt-get update"
+  DEP_PKGS="curl tar jq uuid-runtime"
 elif [ -x "$(command -v dnf)" ]; then
   PKG_MANAGER="dnf"
   INSTALL_CMD="dnf install -y"
   UPDATE_CMD="dnf makecache"
-  DEP_PKGS=(tar jq util-linux)
+  DEP_PKGS="curl tar jq util-linux"
 else
-  echo "❌ 不支持的系统类型，未找到 apt/dnf"
+  echo "❌ 不支持的系统类型，未找到 apt-get/dnf"
   exit 1
 fi
 
@@ -255,14 +315,14 @@ echo "🔍 正在更新软件包索引..."
 $UPDATE_CMD
 
 # === 安装缺失依赖 ===
-for cmd in tar jq uuidgen; do
+for cmd in curl tar jq uuidgen; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "📦 安装缺失组件: $cmd"
     case "$cmd" in
       uuidgen)
         $INSTALL_CMD uuid-runtime || $INSTALL_CMD util-linux
         ;;
-      *)
+      curl|tar|jq)
         $INSTALL_CMD "$cmd"
         ;;
     esac
@@ -270,9 +330,9 @@ for cmd in tar jq uuidgen; do
 done
 
 # === 检查 sing-box 是否已运行 ===
-if systemctl is-active --quiet sing-box; then
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sing-box; then
   read -r -p "⚠️ sing-box 服务已在运行，是否继续安装？[y/N] " choice
-  [[ "$choice" != "y" && "$choice" != "Y" ]] && exit 0
+  [ "$choice" != "y" ] && [ "$choice" != "Y" ] && exit 0
 fi
 
 # === 检测系统架构 ===
@@ -315,16 +375,20 @@ if [ ! -s "$FILENAME" ]; then
 fi
 
 tar -xzf "$FILENAME"
-mv sing-box-${VERSION}-linux-${ARCH}/sing-box .
+mv "sing-box-${VERSION}-linux-${ARCH}/sing-box" .
 chmod +x sing-box
-rm -rf sing-box-${VERSION}-linux-${ARCH} "$FILENAME"
+rm -rf "sing-box-${VERSION}-linux-${ARCH}" "$FILENAME"
 
 # === 生成密钥与 UUID ===
 KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
 PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
 PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
 UUID=$(uuidgen)
-PORT=$(( ( RANDOM % 64510 )  + 1025 ))
+
+# 随机端口（1025-65535），兼容 /bin/sh（无 $RANDOM）
+rand_u16=$(od -v -N2 -tu2 /dev/urandom 2>/dev/null | awk 'NR==1{print $2}')
+[ -z "$rand_u16" ] && rand_u16=$(date +%s)
+PORT=$(( 1025 + (rand_u16 % 64510) ))
 
 # === 使用 jq 生成配置文件 ===
 jq -n \
@@ -396,42 +460,19 @@ WantedBy=multi-user.target
 EOF
 
 # === 启动服务 ===
-systemctl daemon-reexec
 systemctl daemon-reload
 systemctl enable sing-box
 systemctl restart sing-box
 
-# === 获取公网 IP（支持 IPv4 / IPv6） ===
+# === 输出 VLESS 链接（自动处理 IPv6 包裹） ===
 DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
-
-if [ -z "$DOMAIN_OR_IP" ]; then
-  echo "⚠️ 无法自动检测公网 IP，请手动替换为你的域名或 IP"
-  DOMAIN_OR_IP="yourdomain.com"
-fi
-
-# === 检测 IPv6 并加上 [] ===
-if [[ "$DOMAIN_OR_IP" == *:* ]]; then
-  # IPv6 地址检测（包含冒号）
-  FORMATTED_IP="[${DOMAIN_OR_IP}]"
-else
-  FORMATTED_IP="$DOMAIN_OR_IP"
-fi
-
-# === 输出 VLESS 链接 ===
+[ -z "$DOMAIN_OR_IP" ] && DOMAIN_OR_IP="yourdomain.com"
+case "$DOMAIN_OR_IP" in
+  *:*) FORMATTED_IP="[$DOMAIN_OR_IP]" ;;
+  *)   FORMATTED_IP="$DOMAIN_OR_IP" ;;
+esac
 VLESS_URL="vless://${UUID}@${FORMATTED_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
-
-echo ""
-echo "✅ sing-box 安装并运行成功！"
-echo ""
-echo "📌 请将以下 VLESS 链接导入客户端："
-echo "----------------------------------------------------------"
-echo "$VLESS_URL"
-echo "----------------------------------------------------------"
-echo ""
-echo "🔧 使用 systemctl 管理 sing-box："
-echo "状态查看:  systemctl status sing-box"
-echo "重启服务:  systemctl restart sing-box"
-echo "停止服务:  systemctl stop sing-box"
+printf '✅ sing-box 安装并运行成功！\n%s\n' "$VLESS_URL"
 
 SBX_DEFAULT_EOF
   fi
@@ -440,13 +481,23 @@ SBX_DEFAULT_EOF
 
 run_update() {
   echo "⬆️  正在执行 sing-box 一键更新..."
-  # 确保 bash 可用（Alpine 可能默认没有 bash）
+  # 确保 bash/jq/curl 可用
   if ! command -v bash >/dev/null 2>&1; then
     if command -v apk >/dev/null 2>&1; then
       echo "📦 正在安装 bash（Alpine）..."
-      apk update && apk add bash
+      apk update >/dev/null 2>&1 || true
+      apk add bash >/dev/null 2>&1 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+      apt-get update >/dev/null 2>&1 || true
+      apt-get install -y bash >/dev/null 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf makecache >/dev/null 2>&1 || true
+      dnf install -y bash >/dev/null 2>&1 || true
     fi
   fi
+  ensure_jq || true
+  ensure_curl || true
+
   bash -s <<'SBX_UPDATE_EOF'
 #!/bin/bash
 
@@ -468,12 +519,10 @@ if [ ! -f "$INSTALL_DIR/sing-box" ]; then
 fi
 
 # === 检测系统类型和服务管理器 ===
-if [ -f /etc/systemd/system/sing-box.service ]; then
+if command -v systemctl >/dev/null 2>&1; then
   SERVICE_TYPE="systemd"
-  SERVICE_CMD="systemctl"
 elif [ -f /etc/init.d/sing-box ]; then
   SERVICE_TYPE="openrc"
-  SERVICE_CMD="rc-service"
 else
   echo "❌ 未找到 sing-box 服务配置"
   exit 1
@@ -485,6 +534,11 @@ echo "📋 当前版本: $CURRENT_VERSION"
 
 # === 获取最新版本 ===
 echo "🔍 正在检查最新版本..."
+if ! command -v jq >/dev/null 2>&1; then
+  echo "❌ 缺少 jq，请先安装 jq"
+  exit 1
+fi
+
 VERSION_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
 LATEST_VERSION=${VERSION_TAG#v}
 
@@ -529,12 +583,8 @@ esac
 # === 停止服务 ===
 echo "⏹️ 停止 sing-box 服务..."
 case "$SERVICE_TYPE" in
-  systemd)
-    systemctl stop sing-box
-    ;;
-  openrc)
-    rc-service sing-box stop
-    ;;
+  systemd) systemctl stop sing-box ;;
+  openrc)  rc-service sing-box stop ;;
 esac
 
 # === 下载新版本 ===
@@ -550,7 +600,7 @@ if [ ! -s "$FILENAME" ]; then
   echo "🔄 恢复服务..."
   case "$SERVICE_TYPE" in
     systemd) systemctl start sing-box ;;
-    openrc) rc-service sing-box start ;;
+    openrc)  rc-service sing-box start ;;
   esac
   exit 1
 fi
@@ -570,7 +620,7 @@ if [ "$NEW_VERSION" != "$LATEST_VERSION" ]; then
   echo "❌ 版本验证失败，请检查安装过程"
   case "$SERVICE_TYPE" in
     systemd) systemctl start sing-box ;;
-    openrc) rc-service sing-box start ;;
+    openrc)  rc-service sing-box start ;;
   esac
   exit 1
 fi
@@ -585,7 +635,7 @@ case "$SERVICE_TYPE" in
       echo "✅ 服务启动成功"
     else
       echo "❌ 服务启动失败"
-      systemctl status sing-box
+      systemctl status sing-box || true
       exit 1
     fi
     ;;
@@ -596,7 +646,7 @@ case "$SERVICE_TYPE" in
       echo "✅ 服务启动成功"
     else
       echo "❌ 服务启动失败"
-      rc-service sing-box status
+      rc-service sing-box status || true
       exit 1
     fi
     ;;
@@ -622,244 +672,132 @@ esac
 SBX_UPDATE_EOF
 }
 
+run_update_config() {
+  echo "🛠️  正在更新配置（保留 UUID / 端口 / PublicKey）..."
+  ensure_jq || true
 
-run_reconfig() {
-  echo "🔄 正在执行配置更新..."
-  local sys="$(detect_system)"
-  echo "🧭 系统识别: ${sys}"
-  
-  if [ "$sys" = "alpine" ]; then
-    sh -s <<'SBX_RECONFIG_ALPINE_EOF'
+  bash -s <<'SBX_UPDATE_CFG_EOF'
 #!/bin/sh
 
 set -e
 
 INSTALL_DIR="/etc/sing-box"
 CONFIG_FILE="$INSTALL_DIR/config.json"
-BACKUP_DIR="$INSTALL_DIR/backup"
+SNI="updates.cdn-apple.com"
 
-# === 检查配置文件 ===
+if [ "$(id -u)" != "0" ]; then
+  echo "❌ 请使用 root 权限运行该脚本"
+  exit 1
+fi
+
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "❌ 未找到配置文件，请先运行初始安装"
+  echo "❌ 未找到配置文件: $CONFIG_FILE"
   exit 1
 fi
 
-# === 备份当前配置 ===
-mkdir -p "$BACKUP_DIR"
-BACKUP_FILE="$BACKUP_DIR/config.json.$(date +%Y%m%d_%H%M%S)"
-cp "$CONFIG_FILE" "$BACKUP_FILE"
-echo "📦 已备份配置到: $BACKUP_FILE"
-
-# === 提取现有配置信息 ===
-echo "🔍 读取现有配置..."
-CURRENT_UUID=$(jq -r '.inbounds[0].users[0].uuid' "$CONFIG_FILE")
-CURRENT_PORT=$(jq -r '.inbounds[0].listen_port' "$CONFIG_FILE")
-CURRENT_PRIVATE_KEY=$(jq -r '.inbounds[0].tls.reality.private_key' "$CONFIG_FILE")
-
-if [ -z "$CURRENT_UUID" ] || [ "$CURRENT_UUID" = "null" ]; then
-  echo "❌ 无法读取 UUID"
+if ! command -v jq >/dev/null 2>&1; then
+  echo "❌ 缺少 jq，请先安装 jq"
   exit 1
 fi
 
-echo "✓ UUID: $CURRENT_UUID"
-echo "✓ 端口: $CURRENT_PORT"
+# 提取现有的 UUID、端口和 private_key（保持 PublicKey 不变的关键）
+UUID=$(jq -r '.inbounds[0].users[0].uuid // empty' "$CONFIG_FILE")
+PORT=$(jq -r '.inbounds[0].listen_port // empty' "$CONFIG_FILE")
+PRIVATE_KEY=$(jq -r '.inbounds[0].tls.reality.private_key // empty' "$CONFIG_FILE")
 
-# === 从私钥计算公钥 ===
-echo "🔑 计算公钥..."
-TEMP_KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
-PUBLIC_KEY=$(echo "$TEMP_KEYS" | grep 'PublicKey' | awk '{print $2}')
+if [ -z "$UUID" ] || [ -z "$PORT" ] || [ -z "$PRIVATE_KEY" ]; then
+  echo "❌ 配置中缺少必要字段（uuid/port/private_key）"
+  exit 1
+fi
 
-# === 获取新配置参数 ===
-NEW_SNI="updates.cdn-apple.com"
-NEW_LISTEN="::"
-
-# === 使用 jq 更新配置 ===
-echo "📝 更新配置文件..."
-jq \
-  --arg uuid "$CURRENT_UUID" \
-  --arg private_key "$CURRENT_PRIVATE_KEY" \
-  --arg sni "$NEW_SNI" \
-  --arg listen "$NEW_LISTEN" \
-  --argjson port "$CURRENT_PORT" \
+# 生成新模板配置（保持 UUID、端口、private_key 不变）
+jq -n \
+  --arg uuid "$UUID" \
+  --arg private_key "$PRIVATE_KEY" \
+  --arg sni "$SNI" \
+  --arg listen "::" \
+  --arg type "vless" \
+  --arg tag "vless-reality" \
+  --argjson port "$PORT" \
   '
-  .inbounds[0].listen = $listen |
-  .inbounds[0].listen_port = $port |
-  .inbounds[0].users[0].uuid = $uuid |
-  .inbounds[0].users[0].flow = "xtls-rprx-vision" |
-  .inbounds[0].tls.enabled = true |
-  .inbounds[0].tls.server_name = $sni |
-  .inbounds[0].tls.reality.enabled = true |
-  .inbounds[0].tls.reality.handshake.server = $sni |
-  .inbounds[0].tls.reality.handshake.server_port = 443 |
-  .inbounds[0].tls.reality.private_key = $private_key
-  ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+{
+  inbounds: [
+    {
+      type: $type,
+      tag: $tag,
+      listen: $listen,
+      listen_port: $port,
+      users: [
+        {
+          uuid: $uuid,
+          flow: "xtls-rprx-vision"
+        }
+      ],
+      tls: {
+        enabled: true,
+        server_name: $sni,
+        reality: {
+          enabled: true,
+          handshake: {
+            server: $sni,
+            server_port: 443
+          },
+          private_key: $private_key
+        }
+      }
+    }
+  ],
+  outbounds: [
+    {
+      type: "direct",
+      tag: "direct"
+    }
+  ]
+}
+' > "$CONFIG_FILE"
 
-mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
-
-# === 重启服务 ===
-echo "🔄 重启 sing-box 服务..."
-systemctl restart sing-box
-
-# === 获取公网 IP ===
-DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
-if [ -z "$DOMAIN_OR_IP" ]; then
-  DOMAIN_OR_IP="yourdomain.com"
-fi
-
-if [[ "$DOMAIN_OR_IP" == *:* ]]; then
-  FORMATTED_IP="[${DOMAIN_OR_IP}]"
+# 这里只做提示，真正的重启由外层脚本负责
+if command -v systemctl >/dev/null 2>&1 || [ -f /etc/init.d/sing-box ]; then
+  :
 else
-  FORMATTED_IP="$DOMAIN_OR_IP"
+  echo "⚠️ 未检测到已安装的服务管理器文件，已完成配置更新但未重启服务"
 fi
 
-# === 输出更新后的链接 ===
-VLESS_URL="vless://${CURRENT_UUID}@${FORMATTED_IP}:${CURRENT_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${NEW_SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+echo "ℹ️ 已保持 UUID 与端口不变；由于沿用原 private_key，PublicKey 保持不变。"
 
-echo ""
-echo "✅ 配置更新成功！"
-echo ""
-echo "📌 更新后的 VLESS 链接："
-echo "----------------------------------------------------------"
-echo "$VLESS_URL"
-echo "----------------------------------------------------------"
-echo ""
-echo "💡 保持不变的参数："
-echo "   UUID: $CURRENT_UUID"
-echo "   端口: $CURRENT_PORT"
-echo "   私钥: $CURRENT_PRIVATE_KEY"
-echo ""
-echo "🔧 管理命令："
-echo "状态查看: systemctl status sing-box"
-echo "查看日志: journalctl -u sing-box -f"
-echo "查看备份: ls -lh $BACKUP_DIR"
+SBX_UPDATE_CFG_EOF
 
-SBX_RECONFIG_DEFAULT_EOF
+  if restart_service; then
+    echo "✅ 配置已更新并成功重启"
+  else
+    st=$?
+    if [ "$st" -eq 2 ]; then
+      echo "⚠️ 未检测到服务管理器，需手动重启 sing-box"
+    else
+      echo "❌ 服务重启失败，请检查状态"
+    fi
   fi
 }
 
 
 main_menu() {
   echo "======================================="
-  echo " sing-box 管理脚本（合并版）"
+  echo " sing-box 管理脚本（修正版）"
   echo "======================================="
-  echo "1) 配置（自动识别系统并安装/配置）"
-  echo "2) 更新（保留配置并更新版本）"
-  echo "3) 更新配置（保留UUID/端口/密钥）"
-  echo "q) 退出"
+  echo "1 安装"
+  echo "2 更新"
+  echo "3 更新配置"
+  echo "q 退出"
   echo "---------------------------------------"
-  printf "请选择 [1/2/3/q]: "; read choice
+  printf "请选择 [1/2/3/q]: "
+  read choice
   case "$choice" in
     1) require_root; run_config ;;
     2) require_root; run_update ;;
-    3) require_root; run_reconfig ;;
+    3) require_root; run_update_config ;;
     q|Q) echo "已退出。"; exit 0 ;;
     *) echo "无效选择"; exit 2 ;;
   esac
 }
 
-main_menuFILE"
-
-# === 提取现有配置信息 ===
-echo "🔍 读取现有配置..."
-CURRENT_UUID=$(jq -r '.inbounds[0].users[0].uuid' "$CONFIG_FILE")
-CURRENT_PORT=$(jq -r '.inbounds[0].listen_port' "$CONFIG_FILE")
-CURRENT_PRIVATE_KEY=$(jq -r '.inbounds[0].tls.reality.private_key' "$CONFIG_FILE")
-
-if [ -z "$CURRENT_UUID" ] || [ "$CURRENT_UUID" = "null" ]; then
-  echo "❌ 无法读取 UUID"
-  exit 1
-fi
-
-echo "✓ UUID: $CURRENT_UUID"
-echo "✓ 端口: $CURRENT_PORT"
-
-# === 从私钥计算公钥 ===
-echo "🔑 计算公钥..."
-TEMP_KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
-PUBLIC_KEY=$(echo "$TEMP_KEYS" | grep 'PublicKey' | awk '{print $2}')
-
-# === 获取新配置参数 ===
-NEW_SNI="updates.cdn-apple.com"
-NEW_LISTEN="::"
-
-# === 使用 jq 更新配置 ===
-echo "📝 更新配置文件..."
-jq \
-  --arg uuid "$CURRENT_UUID" \
-  --arg private_key "$CURRENT_PRIVATE_KEY" \
-  --arg sni "$NEW_SNI" \
-  --arg listen "$NEW_LISTEN" \
-  --argjson port "$CURRENT_PORT" \
-  '
-  .inbounds[0].listen = $listen |
-  .inbounds[0].listen_port = $port |
-  .inbounds[0].users[0].uuid = $uuid |
-  .inbounds[0].users[0].flow = "xtls-rprx-vision" |
-  .inbounds[0].tls.enabled = true |
-  .inbounds[0].tls.server_name = $sni |
-  .inbounds[0].tls.reality.enabled = true |
-  .inbounds[0].tls.reality.handshake.server = $sni |
-  .inbounds[0].tls.reality.handshake.server_port = 443 |
-  .inbounds[0].tls.reality.private_key = $private_key
-  ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
-
-mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
-
-# === 重启服务 ===
-echo "🔄 重启 sing-box 服务..."
-rc-service sing-box restart
-
-# === 获取公网 IP ===
-DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
-if [ -z "$DOMAIN_OR_IP" ]; then
-  DOMAIN_OR_IP="yourdomain.com"
-fi
-
-if echo "$DOMAIN_OR_IP" | grep -q ":"; then
-  FORMATTED_IP="[${DOMAIN_OR_IP}]"
-else
-  FORMATTED_IP="$DOMAIN_OR_IP"
-fi
-
-# === 输出更新后的链接 ===
-VLESS_URL="vless://${CURRENT_UUID}@${FORMATTED_IP}:${CURRENT_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${NEW_SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
-
-echo ""
-echo "✅ 配置更新成功！"
-echo ""
-echo "📌 更新后的 VLESS 链接："
-echo "----------------------------------------------------------"
-echo "$VLESS_URL"
-echo "----------------------------------------------------------"
-echo ""
-echo "💡 保持不变的参数："
-echo "   UUID: $CURRENT_UUID"
-echo "   端口: $CURRENT_PORT"
-echo "   私钥: $CURRENT_PRIVATE_KEY"
-echo ""
-echo "🔧 管理命令："
-echo "状态查看: rc-service sing-box status"
-echo "查看备份: ls -lh $BACKUP_DIR"
-
-SBX_RECONFIG_ALPINE_EOF
-  else
-    bash -s <<'SBX_RECONFIG_DEFAULT_EOF'
-#!/bin/bash
-
-set -e
-
-INSTALL_DIR="/etc/sing-box"
-CONFIG_FILE="$INSTALL_DIR/config.json"
-BACKUP_DIR="$INSTALL_DIR/backup"
-
-# === 检查配置文件 ===
-if [ ! -f "$CONFIG_FILE" ]; then
-  echo "❌ 未找到配置文件，请先运行初始安装"
-  exit 1
-fi
-
-# === 备份当前配置 ===
-mkdir -p "$BACKUP_DIR"
-BACKUP_FILE="$BACKUP_DIR/config.json.$(date +%Y%m%d_%H%M%S)"
-cp "$CONFIG_FILE" "$BACKUP_FILE"
-echo "📦 已备份配置到: $BACKUP_
+main_menu
