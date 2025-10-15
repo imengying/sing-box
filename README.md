@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/
 
 ### 更新配置文件
 
-安装完成后，如需按照当前模板重写配置但保留关键标识（UUID/端口/PublicKey）不变，可在脚本主菜单选择：
+安装完成后，如需按照当前模板重写配置但保留关键标识（UUID/端口/PublicKey）不变或者小版本更新后配置不生效，可在脚本主菜单选择：
 
 > 注意：若你的配置结构有自定义改动（如多入站、不同 tag），此操作会根据脚本模板覆盖为单一 VLESS Reality 入站。如需保留自定义项，请先备份或手动合并。
 
