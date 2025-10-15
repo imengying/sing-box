@@ -7,6 +7,7 @@
 * ✅ 兼容 Debian/Ubuntu、Alpine 和 RHEL/Fedora（使用 `apt`、`dnf` 或 `apk`）
 * ✅ 自动配置 systemd 服务或 OpenRC 服务
 * ✅ 一键版本更新功能
+* ✅ **配置更新功能（保留 UUID/端口/密钥）**
 * ✅ **支持 IPv4 / IPv6 双栈自动检测（IPv6 优先）**
 
 ---
@@ -30,13 +31,33 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
 ```
+
 ---
 
-### 更新特性
+## 🎯 功能选项
 
-* 🔍 **智能检测** - 自动比较当前版本与最新版本
-* 📋 **兼容性强** - 支持 systemd 和 OpenRC 系统
-* ✅ **验证完整** - 更新后验证版本和服务状态
+运行脚本后会显示功能菜单：
+
+1. **配置** - 全新安装 sing-box（自动识别系统）
+2. **更新** - 更新 sing-box 版本（保留所有配置）
+3. **更新配置** - 刷新配置文件但保留 UUID、端口和密钥（适合调整其他参数）
+
+---
+
+## ✨ 更新配置功能说明
+
+**新增的"更新配置"功能特点：**
+
+* 🔒 **保留关键参数**：UUID、端口、私钥保持不变
+* 🔄 **更新其他配置**：SNI、监听地址、TLS 设置等自动更新为最新标准
+* 📦 **自动备份**：每次更新前自动备份配置到 `/etc/sing-box/backup/`
+* 🔑 **重新生成链接**：根据保留的参数生成新的 VLESS 链接（公钥会重新计算）
+* ✅ **无缝切换**：客户端无需更改 UUID 和端口
+
+**使用场景：**
+- 需要调整 SNI 域名但不想改变 UUID/端口
+- 配置文件损坏需要重建但要保留现有连接参数
+- 升级配置格式但保持客户端兼容性
 
 ---
 
@@ -138,7 +159,7 @@ rc-update del sing-box default
 
 * **配置文件**：`/etc/sing-box/config.json`
 * **执行文件**：`/etc/sing-box/sing-box`
-* **备份目录**：`/etc/sing-box/backup/`（更新时自动创建）
+* **备份目录**：`/etc/sing-box/backup/`（更新配置时自动创建）
 * **systemd 服务文件**：`/etc/systemd/system/sing-box.service`
 * **OpenRC 服务文件**：`/etc/init.d/sing-box`（Alpine 系统）
 
@@ -167,12 +188,25 @@ cat /etc/sing-box/config.json
 jq . /etc/sing-box/config.json
 ```
 
+### 查看配置备份
+
+```bash
+# 列出所有备份
+ls -lh /etc/sing-box/backup/
+
+# 恢复备份（替换 YYYYMMDD_HHMMSS 为实际时间戳）
+cp /etc/sing-box/backup/config.json.YYYYMMDD_HHMMSS /etc/sing-box/config.json
+systemctl restart sing-box  # 或 rc-service sing-box restart
+```
+
 ---
+
+## 🗑️ 卸载
 
 ### 完全卸载
 
 ```bash
-# 停止并删除服务
+# 停止并删除服务 (systemd)
 systemctl stop sing-box
 systemctl disable sing-box
 rm -f /etc/systemd/system/sing-box.service
@@ -186,3 +220,42 @@ rm -f /etc/init.d/sing-box
 # 删除程序文件
 rm -rf /etc/sing-box
 ```
+
+---
+
+## 🔧 常见问题
+
+### Q: 如何更换 SNI 域名？
+
+运行脚本选择"更新配置"功能，或手动编辑 `/etc/sing-box/config.json`，修改 `server_name` 和 `handshake.server` 字段后重启服务。
+
+### Q: 如何更换端口？
+
+需要手动编辑配置文件，修改 `listen_port` 字段，然后重启服务。注意客户端也需要更新端口。
+
+### Q: 如何重新生成 UUID 和密钥？
+
+重新运行安装脚本（选项 1）即可生成新的配置，原配置会被覆盖。建议先备份。
+
+### Q: 配置备份在哪里？
+
+所有通过"更新配置"功能产生的备份都存储在 `/etc/sing-box/backup/` 目录下，以时间戳命名。
+
+---
+
+## 📝 更新日志
+
+* **v1.3** - 新增配置更新功能（保留 UUID/端口/密钥）
+* **v1.2** - 支持 IPv4/IPv6 双栈自动检测
+* **v1.1** - 支持 Alpine Linux (OpenRC)
+* **v1.0** - 初始版本，支持 Debian/Ubuntu/RHEL/Fedora
+
+---
+
+## 📄 许可证
+
+MIT License
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
