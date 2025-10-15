@@ -623,21 +623,243 @@ SBX_UPDATE_EOF
 }
 
 
+run_reconfig() {
+  echo "🔄 正在执行配置更新..."
+  local sys="$(detect_system)"
+  echo "🧭 系统识别: ${sys}"
+  
+  if [ "$sys" = "alpine" ]; then
+    sh -s <<'SBX_RECONFIG_ALPINE_EOF'
+#!/bin/sh
+
+set -e
+
+INSTALL_DIR="/etc/sing-box"
+CONFIG_FILE="$INSTALL_DIR/config.json"
+BACKUP_DIR="$INSTALL_DIR/backup"
+
+# === 检查配置文件 ===
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "❌ 未找到配置文件，请先运行初始安装"
+  exit 1
+fi
+
+# === 备份当前配置 ===
+mkdir -p "$BACKUP_DIR"
+BACKUP_FILE="$BACKUP_DIR/config.json.$(date +%Y%m%d_%H%M%S)"
+cp "$CONFIG_FILE" "$BACKUP_FILE"
+echo "📦 已备份配置到: $BACKUP_FILE"
+
+# === 提取现有配置信息 ===
+echo "🔍 读取现有配置..."
+CURRENT_UUID=$(jq -r '.inbounds[0].users[0].uuid' "$CONFIG_FILE")
+CURRENT_PORT=$(jq -r '.inbounds[0].listen_port' "$CONFIG_FILE")
+CURRENT_PRIVATE_KEY=$(jq -r '.inbounds[0].tls.reality.private_key' "$CONFIG_FILE")
+
+if [ -z "$CURRENT_UUID" ] || [ "$CURRENT_UUID" = "null" ]; then
+  echo "❌ 无法读取 UUID"
+  exit 1
+fi
+
+echo "✓ UUID: $CURRENT_UUID"
+echo "✓ 端口: $CURRENT_PORT"
+
+# === 从私钥计算公钥 ===
+echo "🔑 计算公钥..."
+TEMP_KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
+PUBLIC_KEY=$(echo "$TEMP_KEYS" | grep 'PublicKey' | awk '{print $2}')
+
+# === 获取新配置参数 ===
+NEW_SNI="updates.cdn-apple.com"
+NEW_LISTEN="::"
+
+# === 使用 jq 更新配置 ===
+echo "📝 更新配置文件..."
+jq \
+  --arg uuid "$CURRENT_UUID" \
+  --arg private_key "$CURRENT_PRIVATE_KEY" \
+  --arg sni "$NEW_SNI" \
+  --arg listen "$NEW_LISTEN" \
+  --argjson port "$CURRENT_PORT" \
+  '
+  .inbounds[0].listen = $listen |
+  .inbounds[0].listen_port = $port |
+  .inbounds[0].users[0].uuid = $uuid |
+  .inbounds[0].users[0].flow = "xtls-rprx-vision" |
+  .inbounds[0].tls.enabled = true |
+  .inbounds[0].tls.server_name = $sni |
+  .inbounds[0].tls.reality.enabled = true |
+  .inbounds[0].tls.reality.handshake.server = $sni |
+  .inbounds[0].tls.reality.handshake.server_port = 443 |
+  .inbounds[0].tls.reality.private_key = $private_key
+  ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+
+mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+
+# === 重启服务 ===
+echo "🔄 重启 sing-box 服务..."
+systemctl restart sing-box
+
+# === 获取公网 IP ===
+DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
+if [ -z "$DOMAIN_OR_IP" ]; then
+  DOMAIN_OR_IP="yourdomain.com"
+fi
+
+if [[ "$DOMAIN_OR_IP" == *:* ]]; then
+  FORMATTED_IP="[${DOMAIN_OR_IP}]"
+else
+  FORMATTED_IP="$DOMAIN_OR_IP"
+fi
+
+# === 输出更新后的链接 ===
+VLESS_URL="vless://${CURRENT_UUID}@${FORMATTED_IP}:${CURRENT_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${NEW_SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+
+echo ""
+echo "✅ 配置更新成功！"
+echo ""
+echo "📌 更新后的 VLESS 链接："
+echo "----------------------------------------------------------"
+echo "$VLESS_URL"
+echo "----------------------------------------------------------"
+echo ""
+echo "💡 保持不变的参数："
+echo "   UUID: $CURRENT_UUID"
+echo "   端口: $CURRENT_PORT"
+echo "   私钥: $CURRENT_PRIVATE_KEY"
+echo ""
+echo "🔧 管理命令："
+echo "状态查看: systemctl status sing-box"
+echo "查看日志: journalctl -u sing-box -f"
+echo "查看备份: ls -lh $BACKUP_DIR"
+
+SBX_RECONFIG_DEFAULT_EOF
+  fi
+}
+
+
 main_menu() {
   echo "======================================="
   echo " sing-box 管理脚本（合并版）"
   echo "======================================="
   echo "1) 配置（自动识别系统并安装/配置）"
   echo "2) 更新（保留配置并更新版本）"
+  echo "3) 更新配置（保留UUID/端口/密钥）"
   echo "q) 退出"
   echo "---------------------------------------"
-  printf "请选择 [1/2/q]: "; read choice
+  printf "请选择 [1/2/3/q]: "; read choice
   case "$choice" in
     1) require_root; run_config ;;
     2) require_root; run_update ;;
+    3) require_root; run_reconfig ;;
     q|Q) echo "已退出。"; exit 0 ;;
     *) echo "无效选择"; exit 2 ;;
   esac
 }
 
-main_menu
+main_menuFILE"
+
+# === 提取现有配置信息 ===
+echo "🔍 读取现有配置..."
+CURRENT_UUID=$(jq -r '.inbounds[0].users[0].uuid' "$CONFIG_FILE")
+CURRENT_PORT=$(jq -r '.inbounds[0].listen_port' "$CONFIG_FILE")
+CURRENT_PRIVATE_KEY=$(jq -r '.inbounds[0].tls.reality.private_key' "$CONFIG_FILE")
+
+if [ -z "$CURRENT_UUID" ] || [ "$CURRENT_UUID" = "null" ]; then
+  echo "❌ 无法读取 UUID"
+  exit 1
+fi
+
+echo "✓ UUID: $CURRENT_UUID"
+echo "✓ 端口: $CURRENT_PORT"
+
+# === 从私钥计算公钥 ===
+echo "🔑 计算公钥..."
+TEMP_KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
+PUBLIC_KEY=$(echo "$TEMP_KEYS" | grep 'PublicKey' | awk '{print $2}')
+
+# === 获取新配置参数 ===
+NEW_SNI="updates.cdn-apple.com"
+NEW_LISTEN="::"
+
+# === 使用 jq 更新配置 ===
+echo "📝 更新配置文件..."
+jq \
+  --arg uuid "$CURRENT_UUID" \
+  --arg private_key "$CURRENT_PRIVATE_KEY" \
+  --arg sni "$NEW_SNI" \
+  --arg listen "$NEW_LISTEN" \
+  --argjson port "$CURRENT_PORT" \
+  '
+  .inbounds[0].listen = $listen |
+  .inbounds[0].listen_port = $port |
+  .inbounds[0].users[0].uuid = $uuid |
+  .inbounds[0].users[0].flow = "xtls-rprx-vision" |
+  .inbounds[0].tls.enabled = true |
+  .inbounds[0].tls.server_name = $sni |
+  .inbounds[0].tls.reality.enabled = true |
+  .inbounds[0].tls.reality.handshake.server = $sni |
+  .inbounds[0].tls.reality.handshake.server_port = 443 |
+  .inbounds[0].tls.reality.private_key = $private_key
+  ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+
+mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+
+# === 重启服务 ===
+echo "🔄 重启 sing-box 服务..."
+rc-service sing-box restart
+
+# === 获取公网 IP ===
+DOMAIN_OR_IP=$(curl -s https://api64.ipify.org)
+if [ -z "$DOMAIN_OR_IP" ]; then
+  DOMAIN_OR_IP="yourdomain.com"
+fi
+
+if echo "$DOMAIN_OR_IP" | grep -q ":"; then
+  FORMATTED_IP="[${DOMAIN_OR_IP}]"
+else
+  FORMATTED_IP="$DOMAIN_OR_IP"
+fi
+
+# === 输出更新后的链接 ===
+VLESS_URL="vless://${CURRENT_UUID}@${FORMATTED_IP}:${CURRENT_PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${NEW_SNI}&fp=firefox&pbk=${PUBLIC_KEY}#VLESS-REALITY"
+
+echo ""
+echo "✅ 配置更新成功！"
+echo ""
+echo "📌 更新后的 VLESS 链接："
+echo "----------------------------------------------------------"
+echo "$VLESS_URL"
+echo "----------------------------------------------------------"
+echo ""
+echo "💡 保持不变的参数："
+echo "   UUID: $CURRENT_UUID"
+echo "   端口: $CURRENT_PORT"
+echo "   私钥: $CURRENT_PRIVATE_KEY"
+echo ""
+echo "🔧 管理命令："
+echo "状态查看: rc-service sing-box status"
+echo "查看备份: ls -lh $BACKUP_DIR"
+
+SBX_RECONFIG_ALPINE_EOF
+  else
+    bash -s <<'SBX_RECONFIG_DEFAULT_EOF'
+#!/bin/bash
+
+set -e
+
+INSTALL_DIR="/etc/sing-box"
+CONFIG_FILE="$INSTALL_DIR/config.json"
+BACKUP_DIR="$INSTALL_DIR/backup"
+
+# === 检查配置文件 ===
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "❌ 未找到配置文件，请先运行初始安装"
+  exit 1
+fi
+
+# === 备份当前配置 ===
+mkdir -p "$BACKUP_DIR"
+BACKUP_FILE="$BACKUP_DIR/config.json.$(date +%Y%m%d_%H%M%S)"
+cp "$CONFIG_FILE" "$BACKUP_FILE"
+echo "📦 已备份配置到: $BACKUP_
