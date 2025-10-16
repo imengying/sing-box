@@ -3,7 +3,8 @@
 这是一个用于自动部署 [sing-box](https://github.com/SagerNet/sing-box) 服务端的 Shell 脚本，支持：
 
 * ✅ VLESS + Reality + Vision 流量
-* ✅ 自动生成配置、端口、UUID、密钥
+* ✅ 自动生成配置、UUID、密钥
+* ✅ 手动配置端口
 * ✅ 兼容 Debian/Ubuntu、Alpine 和 RHEL/Fedora（使用 `apt`、`dnf` 或 `apk`）
 * ✅ 自动配置 systemd 服务或 OpenRC 服务
 * ✅ 一键版本更新功能
