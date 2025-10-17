@@ -20,7 +20,7 @@
 ### Debian/Ubuntu、RHEL/Fedora 和 Alpine 系统
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/beta/sing-box.sh | bash
 ```
 ---
 ## 🌐 IPv4 / IPv6 说明
