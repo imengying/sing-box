@@ -3,14 +3,26 @@
 这是一个用于自动部署 [sing-box](https://github.com/SagerNet/sing-box) 服务端的 Shell 脚本，支持：
 
 * ✅ VLESS + Reality + Vision 流量
-* ✅ 自动生成配置、端口、UUID、密钥
+* ✅ 自动生成配置、UUID、密钥
+* ✅ 手动配置端口
 * ✅ 兼容 Debian/Ubuntu、Alpine 和 RHEL/Fedora（使用 `apt`、`dnf` 或 `apk`）
 * ✅ 自动配置 systemd 服务或 OpenRC 服务
 * ✅ 一键版本更新功能
+* ✅ **更新配置文件功能**
 * ✅ **支持 IPv4 / IPv6 双栈自动检测（IPv6 优先）**
 
 ---
 
+## 📥 快速使用
+
+**请使用 `root` 权限运行以下命令：**
+
+### Debian/Ubuntu、RHEL/Fedora 和 Alpine 系统
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/beta/sing-box.sh)
+```
+---
 ## 🌐 IPv4 / IPv6 说明
 
 脚本在安装完成后会自动检测服务器的公网 IP：
@@ -21,37 +33,17 @@
 
 ---
 
-## 📥 快速安装
+### 更新配置文件
 
-**请使用 `root` 权限运行以下命令：**
+安装完成后，如需按照当前模板重写配置但保留关键标识（UUID/端口/PublicKey）不变或者小版本更新后配置不生效，可在脚本主菜单选择：
 
-### Debian/Ubuntu 和 RHEL/Fedora 系统
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
-```
-
-### Alpine 系统
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box-alpine.sh | bash
-```
+> 注意：若你的配置结构有自定义改动（如多入站、不同 tag），此操作会根据脚本模板覆盖为单一 VLESS Reality 入站。如需保留自定义项，请先备份或手动合并。
 
 ---
-
-## 🔄 版本更新
-
-### 自动更新到最新版本
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
-```
 
 ### 更新特性
 
 * 🔍 **智能检测** - 自动比较当前版本与最新版本
-* 💾 **安全备份** - 更新前自动备份当前版本
-* 🔄 **故障回滚** - 更新失败时自动恢复到原版本
 * 📋 **兼容性强** - 支持 systemd 和 OpenRC 系统
 * ✅ **验证完整** - 更新后验证版本和服务状态
 
