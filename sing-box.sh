@@ -130,16 +130,45 @@ get_latest_version() {
   printf "%s" "${VERSION_TAG#v}"
 }
 
-# 检测公网 IP（stdout 只输出最终 IP；日志到 stderr）
+# ✅ 修复：强制 v4/v6 探测 + 结果校验；未检测到时显示“无”
+# 检测公网 IP（stdout 只输出最终 IP/域名；日志到 stderr）
 detect_public_ip() {
   echo "🔍 正在检测公网IP地址..." >&2
-  
-  IPV4=$(safe_curl https://api.ipify.org 2>/dev/null || echo "")
-  IPV6=$(safe_curl https://api64.ipify.org 2>/dev/null || echo "")
-  
-  if [ -n "$IPV6" ] && [ -n "$IPV4" ]; then
+
+  # 分别强制使用 IPv4 / IPv6；失败不会中断脚本（set -e 安全处理）
+  RAW4=$( (safe_curl -4 https://api.ipify.org 2>/dev/null || true) | tr -d '\r\n' )
+  RAW6=$( (safe_curl -6 https://api64.ipify.org 2>/dev/null || true) | tr -d '\r\n' )
+
+  # 形态校验函数（避免把 IPv4 当成 IPv6）
+  is_ipv4() {
+    printf '%s' "$1" | grep -Eq \
+      '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$' \
+      >/dev/null 2>&1 || return 1
+    return 0
+  }
+  is_ipv6() {
+    [ -n "$1" ] || return 1
+    printf '%s' "$1" | grep -Eq '^[0-9A-Fa-f:]+$' >/dev/null 2>&1 || return 1
+    printf '%s' "$1" | grep -q ':' >/dev/null 2>&1 || return 1
+    return 0
+  }
+
+  IPV4=""; IPV6=""
+  is_ipv4 "$RAW4" && IPV4="$RAW4"
+  is_ipv6 "$RAW6" && IPV6="$RAW6"
+
+  if [ -n "$IPV4" ]; then
     echo "✅ 检测到 IPv4: $IPV4" >&2
+  else
+    echo "ℹ️  IPv4: 无" >&2
+  fi
+  if [ -n "$IPV6" ]; then
     echo "✅ 检测到 IPv6: $IPV6" >&2
+  else
+    echo "ℹ️  IPv6: 无" >&2
+  fi
+
+  if [ -n "$IPV6" ] && [ -n "$IPV4" ]; then
     printf "请选择使用的IP版本 [4/6] (默认6): " >&2
     read -r ip_choice
     case "$ip_choice" in
@@ -147,10 +176,8 @@ detect_public_ip() {
       *) printf "%s" "$IPV6" ;;
     esac
   elif [ -n "$IPV6" ]; then
-    echo "✅ 检测到 IPv6: $IPV6" >&2
     printf "%s" "$IPV6"
   elif [ -n "$IPV4" ]; then
-    echo "✅ 检测到 IPv4: $IPV4" >&2
     printf "%s" "$IPV4"
   else
     echo "⚠️ 无法检测到公网IP，请手动替换" >&2
