@@ -5,6 +5,13 @@ set -e
 # === 基本设置 ===
 INSTALL_DIR="/etc/sing-box"
 
+# === 工具函数 ===
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+safe_curl() {
+  curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 "$@"
+}
+
 # === 检查 root 权限 ===
 if [ "$(id -u)" != "0" ]; then
   echo "❌ 请使用 root 权限运行该脚本"
@@ -13,7 +20,7 @@ fi
 
 # === 检查 sing-box 是否存在 ===
 if [ ! -f "$INSTALL_DIR/sing-box" ]; then
-  echo "❌ 未找到 sing-box，请先安装"
+  echo "❌ 未找到 sing-box，请先使用 sing-box.sh 安装"
   exit 1
 fi
 
@@ -35,13 +42,20 @@ echo "📋 当前版本: $CURRENT_VERSION"
 
 # === 获取最新版本 ===
 echo "🔍 正在检查最新版本..."
-VERSION_TAG=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
-LATEST_VERSION=${VERSION_TAG#v}
+VERSION_TAG=$(
+  safe_curl -H "Accept: application/vnd.github+json" -H "User-Agent: curl/8" \
+    https://api.github.com/repos/SagerNet/sing-box/releases/latest \
+    | jq -r '.tag_name // empty' 2>/dev/null
+)
+VERSION_TAG=$(printf "%s" "$VERSION_TAG" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 
 if [ -z "$VERSION_TAG" ] || [ "$VERSION_TAG" = "null" ]; then
-  echo "❌ 无法获取最新版本信息"
+  echo "❌ 无法获取最新版本信息，请检查网络连接或稍后重试"
+  echo "💡 可能原因：网络问题、GitHub API限流、或防火墙拦截"
   exit 1
 fi
+
+LATEST_VERSION=${VERSION_TAG#v}
 
 echo "📋 最新版本: $LATEST_VERSION"
 
@@ -60,8 +74,8 @@ case "$UNAME_ARCH" in
   i386 | i686) ARCH="386" ;;
   armv5*) ARCH="armv5" ;;
   armv6*) ARCH="armv6" ;;
-  armv7*) ARCH="armv7" ;;
-  armv8* | aarch64) ARCH="arm64" ;;
+  armv7l | armv7*) ARCH="armv7" ;;
+  armv8* | aarch64 | arm64) ARCH="arm64" ;;
   loongarch64) ARCH="loong64" ;;
   mips64el) ARCH="mips64le" ;;
   mips64) ARCH="mips64" ;;
@@ -75,6 +89,22 @@ case "$UNAME_ARCH" in
     exit 1
     ;;
 esac
+
+# === 备份当前版本 ===
+echo "💾 备份当前版本..."
+BACKUP_DIR="$INSTALL_DIR/backup"
+mkdir -p "$BACKUP_DIR"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+if [ -f "$INSTALL_DIR/sing-box" ]; then
+  cp "$INSTALL_DIR/sing-box" "$BACKUP_DIR/sing-box.${TIMESTAMP}.bak"
+  echo "✅ 已备份到: $BACKUP_DIR/sing-box.${TIMESTAMP}.bak"
+fi
+
+if [ -f "$INSTALL_DIR/config.json" ]; then
+  cp "$INSTALL_DIR/config.json" "$BACKUP_DIR/config.json.${TIMESTAMP}.bak"
+  echo "✅ 已备份到: $BACKUP_DIR/config.json.${TIMESTAMP}.bak"
+fi
 
 # === 停止服务 ===
 echo "⏹️ 停止 sing-box 服务..."
@@ -93,10 +123,20 @@ DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/${VERSION_T
 
 echo "⬇️ 下载新版本: $LATEST_VERSION"
 cd /tmp
-curl -LO "$DOWNLOAD_URL"
+
+if ! safe_curl -o "$FILENAME" "$DOWNLOAD_URL"; then
+  echo "❌ 下载失败，请检查网络连接"
+  echo "💡 下载地址: $DOWNLOAD_URL"
+  echo "🔄 恢复服务..."
+  case "$SERVICE_TYPE" in
+    systemd) systemctl start sing-box ;;
+    openrc) rc-service sing-box start ;;
+  esac
+  exit 1
+fi
 
 if [ ! -s "$FILENAME" ]; then
-  echo "❌ 下载失败，文件为空或不存在"
+  echo "❌ 下载的文件为空或不存在"
   echo "🔄 恢复服务..."
   case "$SERVICE_TYPE" in
     systemd) systemctl start sing-box ;;
@@ -110,6 +150,11 @@ echo "📦 解压并安装新版本..."
 tar -xzf "$FILENAME"
 cp "sing-box-${LATEST_VERSION}-linux-${ARCH}/sing-box" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/sing-box"
+
+# === 恢复文件权限 ===
+echo "🔐 恢复文件权限..."
+chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
+chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
 
 # === 清理临时文件 ===
 rm -rf "/tmp/sing-box-${LATEST_VERSION}-linux-${ARCH}" "/tmp/$FILENAME"

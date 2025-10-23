@@ -7,7 +7,8 @@
 * ✅ VLESS + Reality + Vision 协议
 * ✅ 自动生成配置、UUID、密钥
 * ✅ 自动配置端口（支持自定义）
-* ✅ 支持 Debian/Ubuntu、Alpine、RHEL/Fedora
+* ✅ 支持 Debian/Ubuntu、Alpine、RHEL/Fedora/CentOS 8+
+* ✅ 支持多种 CPU 架构（x86_64/ARM/ARM64/MIPS/RISC-V 等）
 * ✅ 自动配置 systemd / OpenRC 服务
 * ✅ 一键版本更新（带自动备份）
 * ✅ IPv4 / IPv6 双栈自动检测
@@ -15,6 +16,26 @@
 * ✅ 查看服务运行状态
 * ✅ 完整卸载功能
 * ✅ 网络请求超时和重试机制
+
+---
+
+## 🖥️ 支持的系统
+
+### Linux 发行版
+- **Debian 系列**：Debian、Ubuntu、Linux Mint 等
+- **红帽系列**：RHEL、CentOS 8+、Fedora、Rocky Linux、AlmaLinux 等
+- **其他**：Alpine Linux
+
+### CPU 架构
+- x86_64 (amd64)
+- i386 / i686
+- ARMv5 / ARMv6 / ARMv7 / ARMv8
+- ARM64 (aarch64)
+- LoongArch64
+- MIPS / MIPS64
+- PowerPC64LE
+- RISC-V 64
+- s390x
 
 ---
 
@@ -43,11 +64,30 @@ bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/head
 
 ## 🔄 版本更新
 
-### 自动更新到最新版本
+### 方法一：使用菜单更新（推荐）
+
+运行主脚本，选择菜单选项 2：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh)
 ```
+
+### 方法二：独立更新脚本
+
+直接运行更新脚本（需要已通过 sing-box.sh 安装）：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh)
+```
+
+### 更新功能特性
+
+* ✅ 自动检测最新版本
+* ✅ 更新前自动备份（程序和配置）
+* ✅ 版本验证确保更新成功
+* ✅ 更新失败自动恢复服务
+* ✅ 保留所有配置和密钥
+* ✅ 网络请求超时和重试机制（10秒超时，最多重试3次）
 
 ## 🧰 服务管理
 
@@ -172,7 +212,15 @@ vless://abc123...@[2001:db8::1]:443?...
 A: 运行脚本选择菜单选项 4「查看配置信息」
 
 **Q: 如何更新到最新版本？**  
-A: 运行脚本选择菜单选项 2「更新 sing-box」
+A: 两种方法：  
+   1. 运行脚本选择菜单选项 2「更新 sing-box」  
+   2. 直接运行 `update.sh` 独立更新脚本
+
+**Q: update.sh 和主脚本的更新功能有什么区别？**  
+A: 功能完全一致，`update.sh` 适合需要快速更新的场景，主脚本菜单提供更多选项
+
+**Q: 更新会丢失配置吗？**  
+A: 不会。更新前会自动备份，且保留所有 UUID、端口和密钥配置
 
 **Q: 小版本更新后服务无法启动？**  
 A: 运行脚本选择菜单选项 3「更新配置文件」
@@ -182,3 +230,6 @@ A: 运行脚本选择菜单选项 6「卸载 sing-box」
 
 **Q: 端口被占用怎么办？**  
 A: 安装时可以自定义端口，或留空随机分配
+
+**Q: 支持哪些 Linux 发行版？**  
+A: 支持 Debian/Ubuntu、Alpine、RHEL/Fedora/CentOS 8+ 及其衍生版
