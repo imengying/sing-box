@@ -41,6 +41,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/head
 
 ---
 
+## 🔄 版本更新
+
+### 自动更新到最新版本
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
+```
+
 ## 🧰 服务管理
 
 ### systemd 系统（Debian/Ubuntu/RHEL/Fedora）
