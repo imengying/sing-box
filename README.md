@@ -44,7 +44,7 @@
 **需要 root 权限：**
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh)
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
 ```
 
 安装完成后会自动输出 VLESS 链接，复制到客户端即可使用
@@ -69,7 +69,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/head
 运行主脚本，选择菜单选项 2：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh)
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/sing-box.sh | bash
 ```
 
 ### 方法二：独立更新脚本
@@ -77,7 +77,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/head
 直接运行更新脚本（需要已通过 sing-box.sh 安装）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh)
+curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
 ```
 
 ### 更新功能特性
