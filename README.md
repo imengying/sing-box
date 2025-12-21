@@ -44,7 +44,7 @@
 **需要 root 权限：**
 
 ```bash
-sudo bash <(wget -qO- -o- https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh)
+sudo bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh")
 ```
 
 安装完成后会自动输出 VLESS 链接，复制到客户端即可使用
@@ -69,7 +69,7 @@ sudo bash <(wget -qO- -o- https://raw.githubusercontent.com/imengying/sing-box/m
 运行主脚本，选择菜单选项 2：
 
 ```bash
-sudo bash <(wget -qO- -o- https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh)
+sudo bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh")
 ```
 
 ### 方法二：独立更新脚本
