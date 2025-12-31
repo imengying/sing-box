@@ -55,8 +55,9 @@ detect_system() {
 }
 
 get_service_type() {
-  if command_exists systemctl; then echo "systemd"; return 0; fi
   if [ -f /etc/init.d/sing-box ]; then echo "openrc"; return 0; fi
+  if [ -f /etc/systemd/system/sing-box.service ]; then echo "systemd"; return 0; fi
+  if command_exists systemctl; then echo "systemd"; return 0; fi
   echo ""
 }
 
@@ -104,6 +105,7 @@ generate_vless_config() {
     --arg tag "vless-reality" \
     --argjson port "$port" \
     '{
+      log:{level:"error"},
       inbounds:[{type:$type,tag:$tag,listen:$listen,listen_port:$port,users:[{uuid:$uuid,flow:"xtls-rprx-vision"}],tls:{enabled:true,server_name:$sni,reality:{enabled:true,handshake:{server:$sni,server_port:443},private_key:$private_key}}}],
       outbounds:[{type:"direct",tag:"direct"}]
     }' > "$output_file"
@@ -262,7 +264,7 @@ get_current_version() {
     return 0
   fi
   
-  version=$("$INSTALL_DIR/sing-box" version 2>/dev/null | grep -oP 'version \K[0-9.]+' || echo "unknown")
+  version=$("$INSTALL_DIR/sing-box" version 2>/dev/null | awk '{print $3}' || echo "unknown")
   echo "$version"
 }
 
@@ -277,23 +279,25 @@ download_singbox() {
   
   echo "⬇️ 正在下载 sing-box v${version} (${arch})..."
   
-  cd "$dest_dir"
-  if ! safe_curl -O "$DOWNLOAD_URL"; then
-    echo "❌ 下载失败，请检查网络连接" >&2
-    echo "💡 下载地址: $DOWNLOAD_URL" >&2
-    return 1
-  fi
-  
-  if [ ! -s "$FILENAME" ]; then
-    echo "❌ 下载的文件为空或不存在" >&2
-    return 1
-  fi
-  
-  echo "📦 正在解压..."
-  tar -xzf "$FILENAME"
-  mv "sing-box-${version}-linux-${arch}/sing-box" .
-  chmod +x sing-box
-  rm -rf "sing-box-${version}-linux-${arch}" "$FILENAME"
+  (
+    cd "$dest_dir" || exit 1
+    if ! safe_curl -O "$DOWNLOAD_URL"; then
+      echo "❌ 下载失败，请检查网络连接" >&2
+      echo "💡 下载地址: $DOWNLOAD_URL" >&2
+      exit 1
+    fi
+    
+    if [ ! -s "$FILENAME" ]; then
+      echo "❌ 下载的文件为空或不存在" >&2
+      exit 1
+    fi
+    
+    echo "📦 正在解压..."
+    tar -xzf "$FILENAME"
+    mv "sing-box-${version}-linux-${arch}/sing-box" .
+    chmod +x sing-box
+    rm -rf "sing-box-${version}-linux-${arch}" "$FILENAME"
+  ) || return 1
   
   echo "✅ sing-box 下载成功"
 }
