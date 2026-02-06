@@ -338,20 +338,60 @@ start_service() {
   esac
 }
 
-backup_file() {
-  src="$1"
-  if [ ! -f "$src" ]; then
-    return 0
+is_service_active() {
+  stype="$(get_service_type)"
+  case "$stype" in
+    systemd) systemctl is-active --quiet sing-box ;;
+    openrc) rc-service sing-box status >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+binary_supports_check() {
+  bin_path="$1"
+  "$bin_path" help 2>/dev/null | grep -Eq '(^|[[:space:]])check([[:space:]]|$)'
+}
+
+validate_singbox_binary() {
+  bin_path="$1"
+  expected_version="$2"
+  config_file="$INSTALL_DIR/config.json"
+
+  detected_version=$("$bin_path" version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
+  if [ "$detected_version" != "$expected_version" ]; then
+    echo "❌ 新程序版本校验失败：期望 $expected_version，实际 $detected_version" >&2
+    return 1
   fi
-  
-  backup_dir="$INSTALL_DIR/backup"
-  mkdir -p "$backup_dir"
-  
-  timestamp=$(date +%Y%m%d_%H%M%S)
-  backup_name="$(basename "$src").${timestamp}.bak"
-  
-  cp "$src" "$backup_dir/$backup_name"
-  echo "💾 已备份到: $backup_dir/$backup_name"
+
+  if [ -f "$config_file" ] && binary_supports_check "$bin_path"; then
+    if ! "$bin_path" check -c "$config_file" >/dev/null 2>&1; then
+      echo "❌ 新程序配置校验失败，请检查: $config_file" >&2
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+rollback_binary() {
+  old_bin="$1"
+  current_bin="$INSTALL_DIR/sing-box"
+
+  [ -f "$current_bin" ] && rm -f "$current_bin"
+  if [ ! -f "$old_bin" ]; then
+    echo "❌ 回滚失败：未找到旧程序文件 $old_bin" >&2
+    return 1
+  fi
+
+  if ! mv "$old_bin" "$current_bin"; then
+    echo "❌ 回滚失败：无法恢复旧程序文件" >&2
+    return 1
+  fi
+
+  chmod +x "$current_bin" 2>/dev/null || true
+  chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
+  chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
+  return 0
 }
 
 install_alpine() {
@@ -596,57 +636,105 @@ run_update() {
   
   ARCH=$(detect_architecture) || exit 1
   
-  echo "💾 备份当前版本..."
-  backup_file "$INSTALL_DIR/sing-box"
-  backup_file "$INSTALL_DIR/config.json"
+  echo "⚠️  无备份模式：将直接替换程序文件，当前 config.json 保持不变"
+  STAGE_DIR=$(mktemp -d /tmp/sing-box-update.XXXXXX)
+  STAGED_BIN="$STAGE_DIR/sing-box"
+  NEW_BIN="$INSTALL_DIR/sing-box.new"
+  OLD_BIN="$INSTALL_DIR/sing-box.old"
   
-  echo "⏹️  停止 sing-box 服务..."
-  stop_service
+  trap 'rm -rf "$STAGE_DIR"' EXIT INT TERM
   
-  if ! download_singbox "$LATEST_VERSION" "$ARCH" "/tmp"; then
-    echo "❌ 下载失败，恢复服务..."
-    start_service
+  echo "⬇️  下载并预校验新版本..."
+  if ! download_singbox "$LATEST_VERSION" "$ARCH" "$STAGE_DIR"; then
+    echo "❌ 下载失败，更新中止（当前服务保持运行）"
     exit 1
   fi
   
-  cp "/tmp/sing-box" "$INSTALL_DIR/"
-  chmod +x "$INSTALL_DIR/sing-box"
+  if ! validate_singbox_binary "$STAGED_BIN" "$LATEST_VERSION"; then
+    echo "❌ 新程序预校验失败，更新中止（当前服务保持运行）"
+    exit 1
+  fi
+  
+  rm -f "$NEW_BIN"
+  if ! install -m 755 "$STAGED_BIN" "$NEW_BIN"; then
+    echo "❌ 写入临时程序失败，更新中止（当前服务保持运行）"
+    exit 1
+  fi
+  
+  trap - EXIT INT TERM
+  rm -rf "$STAGE_DIR"
+  
+  echo "⏹️  停止 sing-box 服务..."
+  if ! stop_service; then
+    echo "❌ 停止服务失败，更新中止"
+    rm -f "$NEW_BIN" 2>/dev/null || true
+    exit 1
+  fi
+  
+  echo "🔁 原子切换程序文件..."
+  rm -f "$OLD_BIN"
+  if ! mv "$INSTALL_DIR/sing-box" "$OLD_BIN"; then
+    echo "❌ 无法保存旧程序，更新中止"
+    start_service || true
+    rm -f "$NEW_BIN" 2>/dev/null || true
+    exit 1
+  fi
+  
+  if ! mv "$NEW_BIN" "$INSTALL_DIR/sing-box"; then
+    echo "❌ 切换新程序失败，正在回滚..."
+    mv "$OLD_BIN" "$INSTALL_DIR/sing-box" 2>/dev/null || true
+    start_service || true
+    exit 1
+  fi
   
   # 恢复文件权限
   chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
   chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
   
-  NEW_VERSION=$(get_current_version)
-  if [ "$NEW_VERSION" != "$LATEST_VERSION" ]; then
-    echo "❌ 版本验证失败，请检查安装过程"
-    start_service
+  if ! validate_singbox_binary "$INSTALL_DIR/sing-box" "$LATEST_VERSION"; then
+    echo "❌ 切换后校验失败，正在回滚旧程序..."
+    if rollback_binary "$OLD_BIN"; then
+      if start_service && is_service_active; then
+        echo "✅ 已回滚到旧版本并恢复服务"
+      else
+        echo "❌ 已回滚旧版本，但服务恢复失败，请手动检查"
+      fi
+    else
+      echo "❌ 回滚失败，请手动处理"
+    fi
     exit 1
   fi
   
   echo "🚀 启动 sing-box 服务..."
-  start_service
-  sleep 2
+  if ! start_service; then
+    echo "❌ 服务启动失败，正在回滚旧程序..."
+    if rollback_binary "$OLD_BIN"; then
+      start_service || true
+    fi
+    exit 1
+  fi
   
-  case "$stype" in
-    systemd)
-      if systemctl is-active --quiet sing-box; then
-        echo "✅ 服务启动成功"
+  sleep 2
+  if ! is_service_active; then
+    echo "❌ 服务启动失败，正在回滚旧程序..."
+    if rollback_binary "$OLD_BIN"; then
+      if start_service && is_service_active; then
+        echo "✅ 已回滚到旧版本并恢复服务"
       else
-        echo "❌ 服务启动失败"
-        systemctl status sing-box || true
-        exit 1
+        echo "❌ 已回滚旧版本，但服务恢复失败，请手动检查"
       fi
-      ;;
-    openrc)
-      if rc-service sing-box status >/dev/null 2>&1; then
-        echo "✅ 服务启动成功"
-      else
-        echo "❌ 服务启动失败"
-        rc-service sing-box status || true
-        exit 1
-      fi
-      ;;
-  esac
+    else
+      echo "❌ 回滚失败，请手动处理"
+    fi
+    case "$stype" in
+      systemd) systemctl status sing-box || true ;;
+      openrc) rc-service sing-box status || true ;;
+    esac
+    exit 1
+  fi
+  
+  echo "✅ 服务启动成功"
+  rm -f "$OLD_BIN"
   
   echo ""
   echo "🎉 sing-box 更新完成！"
@@ -687,9 +775,6 @@ run_update_config() {
     echo "❌ 配置中缺少必要字段（uuid/port/private_key）"
     exit 1
   fi
-  
-  echo "💾 备份当前配置..."
-  backup_file "$CONFIG_FILE"
   
   echo "⚙️ 生成新配置..."
   generate_vless_config "$UUID" "$PRIVATE_KEY" "$PORT" "$CONFIG_FILE"
@@ -807,7 +892,7 @@ run_uninstall() {
   echo ""
   echo "这将删除："
   echo "  • sing-box 程序文件"
-  echo "  • 配置文件（包括备份）"
+  echo "  • 配置文件"
   echo "  • 系统服务配置"
   echo ""
   printf "确认卸载？[y/N] "
@@ -841,29 +926,9 @@ run_uninstall() {
   fi
   
   if [ -d "$INSTALL_DIR" ]; then
-    # 询问是否保留备份
-    if [ -d "$INSTALL_DIR/backup" ] && [ "$(ls -A "$INSTALL_DIR/backup" 2>/dev/null)" ]; then
-      printf "是否保留备份文件？[y/N] "
-      read -r keep_backup
-      if [ "$keep_backup" = "y" ] || [ "$keep_backup" = "Y" ]; then
-        echo "💾 保留备份文件到 $INSTALL_DIR/backup/"
-        backup_tmp="/tmp/sing-box-backup-$(date +%Y%m%d_%H%M%S)"
-        mv "$INSTALL_DIR/backup" "$backup_tmp"
-        echo "🗑️  删除程序文件..."
-        rm -rf "$INSTALL_DIR"
-        mkdir -p "$INSTALL_DIR"
-        mv "$backup_tmp" "$INSTALL_DIR/backup"
-        echo "✅ 程序文件已删除，备份已保留"
-      else
-        echo "🗑️  删除程序文件（包括备份）..."
-        rm -rf "$INSTALL_DIR"
-        echo "✅ 程序文件已删除"
-      fi
-    else
-      echo "🗑️  删除程序文件..."
-      rm -rf "$INSTALL_DIR"
-      echo "✅ 程序文件已删除"
-    fi
+    echo "🗑️  删除程序文件..."
+    rm -rf "$INSTALL_DIR"
+    echo "✅ 程序文件已删除"
   fi
   
   echo ""
