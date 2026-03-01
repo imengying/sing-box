@@ -14,7 +14,7 @@ require_root() {
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 safe_curl() {
-  curl -fsSL --connect-timeout 10 --max-time 30 --retry 3 "$@"
+  curl -fsSL --connect-timeout 10 --max-time 300 --retry 3 "$@"
 }
 
 detect_architecture() {
