@@ -26,6 +26,8 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sin
 
 ## 菜单功能
 
+直接运行主脚本将进入交互式菜单：
+
 1. 安装 sing-box
 2. 更新 sing-box
 3. 更新配置文件
@@ -33,19 +35,33 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sin
 5. 查看服务状态
 6. 卸载 sing-box
 
+## 命令行参数
+
+除了交互式菜单，脚本也支持直接通过命令行参数执行对应功能，适合自动化部署（需要 root 权限）：
+
+- `install` 或 `i`：安装 sing-box
+- `update` 或 `u`：更新 sing-box
+- `config` 或 `c`：更新配置文件
+- `info`：查看配置信息
+- `status` 或 `s`：查看服务状态
+- `uninstall`：卸载 sing-box
+- `-y` 或 `--auto`：自动模式（跳过确认；非交互环境推荐）
+
+默认模式下会进行必要交互（例如安装时端口输入、IPv4/IPv6 选择，IP 版本默认 `v6`）。
+
+例如直接更新：
+```bash
+bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh") update
+```
+
 ## 更新方式
 
-方式一（推荐）：运行主脚本并选菜单 `2`
+推荐直接运行主脚本：
 
 ```bash
 bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh")
 ```
-
-方式二：直接运行独立更新脚本
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/imengying/sing-box/refs/heads/main/update.sh | bash
-```
+然后在菜单中选择 `2`，或使用命令行参数 `update` 直接更新。
 
 ## 常用服务命令
 
@@ -76,4 +92,4 @@ rc-service sing-box restart
 vless://<UUID>@<IP>:<PORT>?encryption=none&flow=xtls-rprx-vision&security=reality&sni=updates.cdn-apple.com&fp=firefox&pbk=<PublicKey>#VLESS-REALITY
 ```
 
-IPv6 地址请使用 `[]` 包裹，例如：`[2001:db8::1]`。
+IPv6 地址请使用 `[]` 包裹，例如：`[2211:db8::1]`。
