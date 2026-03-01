@@ -285,7 +285,7 @@ get_current_version() {
     return 0
   fi
   
-  local version=$("$INSTALL_DIR/sing-box" version 2>/dev/null | awk '{print $3}' || echo "unknown")
+  local version=$("$INSTALL_DIR/sing-box" version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
   echo "$version"
 }
 
@@ -669,7 +669,6 @@ run_update() {
   fi
   
   local CURRENT_VERSION=$(get_current_version)
-  echo "📋 当前版本: $CURRENT_VERSION"
   
   local LATEST_VERSION=$(get_latest_version) || exit 1
   echo "📋 最新版本: $LATEST_VERSION"

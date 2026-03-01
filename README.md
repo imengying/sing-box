@@ -21,7 +21,7 @@
 需要 root 权限：
 
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh")
+curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh" | bash
 ```
 
 ## 菜单功能
@@ -51,7 +51,7 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sin
 
 例如直接更新：
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh") update
+curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh" | bash -s -- update
 ```
 
 ## 更新方式
@@ -59,7 +59,7 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sin
 推荐直接运行主脚本：
 
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh")
+curl -fsSL "https://raw.githubusercontent.com/imengying/sing-box/main/sing-box.sh" | bash
 ```
 然后在菜单中选择 `2`，或使用命令行参数 `update` 直接更新。
 
