@@ -14,6 +14,18 @@ require_root() {
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+get_singbox_binary() {
+  if [ -x "$INSTALL_DIR/sing-box" ]; then
+    echo "$INSTALL_DIR/sing-box"
+    return 0
+  fi
+  if command_exists sing-box; then
+    command -v sing-box
+    return 0
+  fi
+  return 1
+}
+
 safe_curl() {
   curl -fsSL --connect-timeout 10 --max-time 300 --retry 3 "$@"
 }
@@ -226,6 +238,18 @@ generate_vless_url() {
   echo "vless://${uuid}@${formatted_ip}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=firefox&pbk=${public_key}#VLESS-REALITY"
 }
 
+ensure_alpine_github_dependencies() {
+  echo "📦 正在安装 Alpine 依赖..." >&2
+  apk update
+  apk add curl jq tar util-linux gcompat
+
+  for cmd in curl jq tar uuidgen; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "❌ 缺少必要命令: $cmd" >&2; return 1; }
+  done
+
+  return 0
+}
+
 ensure_jq() {
   if command_exists jq; then return 0; fi
   echo "📦 正在安装 jq..." >&2
@@ -280,12 +304,13 @@ ensure_curl() {
 
 # 获取当前版本
 get_current_version() {
-  if [ ! -f "$INSTALL_DIR/sing-box" ]; then
+  local bin_path=""
+  if ! bin_path=$(get_singbox_binary); then
     echo "未安装"
     return 0
   fi
   
-  local version=$("$INSTALL_DIR/sing-box" version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
+  local version=$("$bin_path" version 2>/dev/null | head -n1 | awk '{print $3}' || echo "unknown")
   echo "$version"
 }
 
@@ -429,8 +454,9 @@ generate_reality_keypair() {
   local bin_path="$1"
   local key_output=""
 
-  if ! key_output=$("$bin_path" generate reality-keypair 2>/dev/null); then
+  if ! key_output=$("$bin_path" generate reality-keypair 2>&1); then
     echo "❌ 无法执行 sing-box 生成 Reality 密钥，请检查程序文件是否完整" >&2
+    [ -n "$key_output" ] && printf '%s\n' "$key_output" >&2
     return 1
   fi
 
@@ -463,23 +489,18 @@ install_alpine() {
     fi
   fi
   
-  echo "📦 正在安装依赖..."
-  apk update
-  apk add curl jq tar util-linux
-  
-  for cmd in curl jq tar uuidgen; do
-    command -v "$cmd" >/dev/null 2>&1 || { echo "❌ 缺少必要命令: $cmd"; exit 1; }
-  done
-  
+  mkdir -p "$INSTALL_DIR"
+  ensure_alpine_github_dependencies || exit 1
+
   local ARCH=$(detect_architecture) || exit 1
   local VERSION=$(get_latest_version) || exit 1
-  
-  mkdir -p "$INSTALL_DIR"
+
   download_singbox "$VERSION" "$ARCH" "$INSTALL_DIR" || exit 1
+  local BIN_PATH="$INSTALL_DIR/sing-box"
   
   echo "🔐 正在生成密钥..." >&2
   local KEYS=""
-  if ! KEYS=$(generate_reality_keypair "$INSTALL_DIR/sing-box"); then
+  if ! KEYS=$(generate_reality_keypair "$BIN_PATH"); then
     exit 1
   fi
   local PRIVATE_KEY=$(printf '%s\n' "$KEYS" | sed -n '1p')
@@ -517,7 +538,7 @@ EOF
   chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
   
   rc-update add sing-box default
-  rc-service sing-box start
+  rc-service sing-box restart >/dev/null 2>&1 || rc-service sing-box start
   
   sleep 2
   if ! is_service_active; then
@@ -535,6 +556,7 @@ EOF
   echo "✅ sing-box 安装并运行成功！" >&2
   echo "==========================================" >&2
   echo "" >&2
+  echo "📦 当前版本: $(get_current_version)" >&2
   echo "📋 VLESS 链接：" >&2
   echo "$VLESS_URL"
   echo "" >&2
@@ -699,8 +721,13 @@ run_config() {
 run_update() {
   echo "⬆️  正在执行 sing-box 一键更新..."
   require_root
+
+  if [ "$(detect_system)" = "alpine" ]; then
+    ensure_alpine_github_dependencies || exit 1
+  fi
   
-  if [ ! -f "$INSTALL_DIR/sing-box" ]; then
+  local CURRENT_BIN=""
+  if ! CURRENT_BIN=$(get_singbox_binary); then
     echo "❌ 未找到 sing-box，请先安装"
     exit 1
   fi
@@ -949,7 +976,7 @@ run_show_config() {
 }
 
 run_show_status() {
-  if [ ! -f "$INSTALL_DIR/sing-box" ]; then
+  if ! get_singbox_binary >/dev/null 2>&1; then
     echo "❌ sing-box 未安装"
     exit 1
   fi
@@ -1026,7 +1053,7 @@ run_uninstall() {
     esac
     echo "✅ 服务已停止并移除"
   fi
-  
+
   if [ -d "$INSTALL_DIR" ]; then
     echo "🗑️  删除程序文件..."
     rm -rf "$INSTALL_DIR"
