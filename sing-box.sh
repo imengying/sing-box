@@ -297,6 +297,7 @@ download_singbox() {
   
   local FILENAME="sing-box-${version}-linux-${arch}.tar.gz"
   local DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/v${version}/${FILENAME}"
+  local EXTRACTED_DIR="sing-box-${version}-linux-${arch}"
   
   echo "⬇️ 正在下载 sing-box v${version} (${arch})..." >&2
   
@@ -315,9 +316,19 @@ download_singbox() {
     
     echo "📦 正在解压..." >&2
     tar -xzf "$FILENAME"
-    mv "sing-box-${version}-linux-${arch}/sing-box" .
+    if [ ! -d "$EXTRACTED_DIR" ]; then
+      echo "❌ 未找到解压后的目录: $EXTRACTED_DIR" >&2
+      exit 1
+    fi
+    if [ ! -f "$EXTRACTED_DIR/sing-box" ]; then
+      echo "❌ 发行包中缺少 sing-box 主程序" >&2
+      exit 1
+    fi
+
+    # 保留发行包中的伴随文件，例如 libcronet.so。
+    cp -af "$EXTRACTED_DIR"/. .
     chmod +x sing-box
-    rm -rf "sing-box-${version}-linux-${arch}" "$FILENAME"
+    rm -rf "$EXTRACTED_DIR" "$FILENAME"
   ) || return 1
   
   echo "✅ sing-box 下载成功" >&2
@@ -394,25 +405,44 @@ validate_singbox_binary() {
   return 0
 }
 
-rollback_binary() {
-  local old_bin="$1"
-  local current_bin="$INSTALL_DIR/sing-box"
+rollback_release_files() {
+  local backup_dir="$1"
+  shift
 
-  [ -f "$current_bin" ] && rm -f "$current_bin"
-  if [ ! -f "$old_bin" ]; then
-    echo "❌ 回滚失败：未找到旧程序文件 $old_bin" >&2
-    return 1
-  fi
+  local file_name=""
+  for file_name in "$@"; do
+    rm -rf "$INSTALL_DIR/$file_name" 2>/dev/null || true
+    if [ -e "$backup_dir/$file_name" ] || [ -L "$backup_dir/$file_name" ]; then
+      if ! cp -af "$backup_dir/$file_name" "$INSTALL_DIR/$file_name"; then
+        echo "❌ 回滚失败：无法恢复文件 $file_name" >&2
+        return 1
+      fi
+    fi
+  done
 
-  if ! mv "$old_bin" "$current_bin"; then
-    echo "❌ 回滚失败：无法恢复旧程序文件" >&2
-    return 1
-  fi
-
-  chmod +x "$current_bin" 2>/dev/null || true
   chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
   chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
   return 0
+}
+
+generate_reality_keypair() {
+  local bin_path="$1"
+  local key_output=""
+
+  if ! key_output=$("$bin_path" generate reality-keypair 2>/dev/null); then
+    echo "❌ 无法执行 sing-box 生成 Reality 密钥，请检查程序文件是否完整" >&2
+    return 1
+  fi
+
+  local private_key=$(printf '%s\n' "$key_output" | awk '/PrivateKey/ {print $2; exit}')
+  local public_key=$(printf '%s\n' "$key_output" | awk '/PublicKey/ {print $2; exit}')
+
+  if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+    echo "❌ Reality 密钥生成失败，请检查 sing-box 输出" >&2
+    return 1
+  fi
+
+  printf '%s\n%s\n' "$private_key" "$public_key"
 }
 
 install_alpine() {
@@ -448,9 +478,12 @@ install_alpine() {
   download_singbox "$VERSION" "$ARCH" "$INSTALL_DIR" || exit 1
   
   echo "🔐 正在生成密钥..." >&2
-  local KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
-  local PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
-  local PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
+  local KEYS=""
+  if ! KEYS=$(generate_reality_keypair "$INSTALL_DIR/sing-box"); then
+    exit 1
+  fi
+  local PRIVATE_KEY=$(printf '%s\n' "$KEYS" | sed -n '1p')
+  local PUBLIC_KEY=$(printf '%s\n' "$KEYS" | sed -n '2p')
   local UUID=$(uuidgen)
   
   local PORT=$(validate_port "$input_port")
@@ -487,6 +520,11 @@ EOF
   rc-service sing-box start
   
   sleep 2
+  if ! is_service_active; then
+    echo "❌ sing-box 服务启动失败，请检查状态" >&2
+    rc-service sing-box status || true
+    exit 1
+  fi
   
   echo ""
   echo "==========================================" >&2
@@ -559,9 +597,12 @@ install_default() {
   download_singbox "$VERSION" "$ARCH" "$INSTALL_DIR" || exit 1
   
   echo "🔐 正在生成密钥..." >&2
-  local KEYS=$("$INSTALL_DIR/sing-box" generate reality-keypair)
-  local PRIVATE_KEY=$(echo "$KEYS" | grep 'PrivateKey' | awk '{print $2}')
-  local PUBLIC_KEY=$(echo "$KEYS" | grep 'PublicKey' | awk '{print $2}')
+  local KEYS=""
+  if ! KEYS=$(generate_reality_keypair "$INSTALL_DIR/sing-box"); then
+    exit 1
+  fi
+  local PRIVATE_KEY=$(printf '%s\n' "$KEYS" | sed -n '1p')
+  local PUBLIC_KEY=$(printf '%s\n' "$KEYS" | sed -n '2p')
   local UUID=$(uuidgen)
   
   local PORT=$(validate_port "$input_port")
@@ -606,6 +647,11 @@ EOF
   systemctl start sing-box
   
   sleep 2
+  if ! is_service_active; then
+    echo "❌ sing-box 服务启动失败，请检查状态" >&2
+    systemctl status sing-box --no-pager || true
+    exit 1
+  fi
   
   echo ""
   echo "==========================================" >&2
@@ -683,10 +729,10 @@ run_update() {
   local ARCH=$(detect_architecture) || exit 1
   local STAGE_DIR=$(mktemp -d /tmp/sing-box-update.XXXXXX)
   local STAGED_BIN="$STAGE_DIR/sing-box"
-  local NEW_BIN="$INSTALL_DIR/sing-box.new"
-  local OLD_BIN="$INSTALL_DIR/sing-box.old"
+  local BACKUP_DIR=$(mktemp -d /tmp/sing-box-backup.XXXXXX)
+  local -a RELEASE_FILES=()
   
-  trap 'rm -rf "$STAGE_DIR"' EXIT INT TERM
+  trap 'rm -rf "$STAGE_DIR" "$BACKUP_DIR"' EXIT INT TERM
   
   echo "⬇️  下载并预校验新版本..."
   if ! download_singbox "$LATEST_VERSION" "$ARCH" "$STAGE_DIR"; then
@@ -699,45 +745,50 @@ run_update() {
     exit 1
   fi
   
-  rm -f "$NEW_BIN"
-  if ! install -m 755 "$STAGED_BIN" "$NEW_BIN"; then
-    echo "❌ 写入临时程序失败，更新中止（当前服务保持运行）"
+  local staged_file=""
+  for staged_file in "$STAGE_DIR"/*; do
+    [ -e "$staged_file" ] || continue
+    if [ -f "$staged_file" ] || [ -L "$staged_file" ]; then
+      RELEASE_FILES+=("$(basename "$staged_file")")
+    fi
+  done
+
+  if [ "${#RELEASE_FILES[@]}" -eq 0 ]; then
+    echo "❌ 未找到可部署的发行包文件，更新中止"
     exit 1
   fi
-  
-  trap - EXIT INT TERM
-  rm -rf "$STAGE_DIR"
   
   echo "⏹️  停止 sing-box 服务..."
   if ! stop_service; then
     echo "❌ 停止服务失败，更新中止"
-    rm -f "$NEW_BIN" 2>/dev/null || true
     exit 1
   fi
   
-  echo "🔁 原子切换程序文件..."
-  rm -f "$OLD_BIN"
-  if ! mv "$INSTALL_DIR/sing-box" "$OLD_BIN"; then
-    echo "❌ 无法保存旧程序，更新中止"
-    start_service || true
-    rm -f "$NEW_BIN" 2>/dev/null || true
-    exit 1
-  fi
-  
-  if ! mv "$NEW_BIN" "$INSTALL_DIR/sing-box"; then
-    echo "❌ 切换新程序失败，正在回滚..."
-    mv "$OLD_BIN" "$INSTALL_DIR/sing-box" 2>/dev/null || true
-    start_service || true
-    exit 1
-  fi
+  echo "🔁 正在替换发行包文件..."
+  local file_name=""
+  for file_name in "${RELEASE_FILES[@]}"; do
+    if [ -e "$INSTALL_DIR/$file_name" ] || [ -L "$INSTALL_DIR/$file_name" ]; then
+      if ! cp -af "$INSTALL_DIR/$file_name" "$BACKUP_DIR/$file_name"; then
+        echo "❌ 无法备份旧文件 $file_name，更新中止"
+        start_service || true
+        exit 1
+      fi
+    fi
+    if ! cp -af "$STAGE_DIR/$file_name" "$INSTALL_DIR/$file_name"; then
+      echo "❌ 替换文件 $file_name 失败，正在回滚..."
+      rollback_release_files "$BACKUP_DIR" "${RELEASE_FILES[@]}" || true
+      start_service || true
+      exit 1
+    fi
+  done
   
   # 恢复文件权限
   chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
   chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
   
   if ! validate_singbox_binary "$INSTALL_DIR/sing-box" "$LATEST_VERSION"; then
-    echo "❌ 切换后校验失败，正在回滚旧程序..."
-    if rollback_binary "$OLD_BIN"; then
+    echo "❌ 切换后校验失败，正在回滚旧文件..."
+    if rollback_release_files "$BACKUP_DIR" "${RELEASE_FILES[@]}"; then
       if start_service && is_service_active; then
         echo "✅ 已回滚到旧版本并恢复服务"
       else
@@ -751,8 +802,8 @@ run_update() {
   
   echo "🚀 启动 sing-box 服务..."
   if ! start_service; then
-    echo "❌ 服务启动失败，正在回滚旧程序..."
-    if rollback_binary "$OLD_BIN"; then
+    echo "❌ 服务启动失败，正在回滚旧文件..."
+    if rollback_release_files "$BACKUP_DIR" "${RELEASE_FILES[@]}"; then
       start_service || true
     fi
     exit 1
@@ -760,8 +811,8 @@ run_update() {
   
   sleep 2
   if ! is_service_active; then
-    echo "❌ 服务启动失败，正在回滚旧程序..."
-    if rollback_binary "$OLD_BIN"; then
+    echo "❌ 服务启动失败，正在回滚旧文件..."
+    if rollback_release_files "$BACKUP_DIR" "${RELEASE_FILES[@]}"; then
       if start_service && is_service_active; then
         echo "✅ 已回滚到旧版本并恢复服务"
       else
@@ -778,7 +829,8 @@ run_update() {
   fi
   
   echo "✅ 服务启动成功"
-  rm -f "$OLD_BIN"
+  trap - EXIT INT TERM
+  rm -rf "$STAGE_DIR" "$BACKUP_DIR"
   
   echo ""
   echo "🎉 sing-box 更新完成！"
