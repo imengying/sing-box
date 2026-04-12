@@ -4,6 +4,7 @@ set -e
 FORCE_AUTO="${FORCE_AUTO:-0}"
 INSTALL_DIR="/etc/sing-box"
 SNI="updates.cdn-apple.com"
+RELEASE_MANIFEST=".release-files"
 
 require_root() {
   if [ "$(id -u)" != "0" ]; then
@@ -17,10 +18,6 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 get_singbox_binary() {
   if [ -x "$INSTALL_DIR/sing-box" ]; then
     echo "$INSTALL_DIR/sing-box"
-    return 0
-  fi
-  if command_exists sing-box; then
-    command -v sing-box
     return 0
   fi
   return 1
@@ -125,11 +122,6 @@ generate_vless_config() {
     }' > "$output_file"
 }
 
-# =========================
-# 最小修复：替换的两个函数
-# =========================
-
-# 获取最新版本（stdout 只输出版本号；日志打印到 stderr）
 get_latest_version() {
   echo "🔍 正在检查最新版本..." >&2
   VERSION_TAG=$(
@@ -250,6 +242,85 @@ ensure_alpine_github_dependencies() {
   return 0
 }
 
+sha256_file() {
+  local file_path="$1"
+
+  if command_exists sha256sum; then
+    sha256sum "$file_path" | awk '{print $1}'
+    return 0
+  fi
+  if command_exists shasum; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+    return 0
+  fi
+  if command_exists openssl; then
+    openssl dgst -sha256 "$file_path" | awk '{print $NF}'
+    return 0
+  fi
+
+  echo "❌ 未找到可用的 SHA256 校验命令（sha256sum/shasum/openssl）" >&2
+  return 1
+}
+
+get_release_asset_digest() {
+  local version="$1"
+  local filename="$2"
+
+  safe_curl -H "Accept: application/vnd.github+json" -H "User-Agent: curl/8" \
+    "https://api.github.com/repos/SagerNet/sing-box/releases/tags/v${version}" \
+    | jq -r --arg filename "$filename" '.assets[]? | select(.name == $filename) | .digest // empty' \
+    | head -n1
+}
+
+write_release_manifest() {
+  local source_dir="$1"
+  local manifest_path="$2"
+  local entry=""
+  local file_name=""
+
+  : > "$manifest_path"
+  for entry in "$source_dir"/*; do
+    [ -e "$entry" ] || continue
+    if [ -f "$entry" ] || [ -L "$entry" ]; then
+      file_name=$(basename "$entry")
+      printf '%s\n' "$file_name" >> "$manifest_path"
+    fi
+  done
+  sort -u "$manifest_path" -o "$manifest_path"
+}
+
+get_release_file_list() {
+  local target_dir="$1"
+  local manifest_path="$target_dir/$RELEASE_MANIFEST"
+  local entry=""
+  local file_name=""
+
+  if [ -f "$manifest_path" ]; then
+    sort -u "$manifest_path"
+    return 0
+  fi
+
+  for entry in "$target_dir"/*; do
+    [ -e "$entry" ] || continue
+    if [ -f "$entry" ] || [ -L "$entry" ]; then
+      file_name=$(basename "$entry")
+      case "$file_name" in
+        config.json|public.key|"$RELEASE_MANIFEST"|sing-box.new|sing-box.old)
+          continue
+          ;;
+      esac
+      printf '%s\n' "$file_name"
+    fi
+  done | sort
+}
+
+manifest_has_file() {
+  local manifest_path="$1"
+  local file_name="$2"
+
+  [ -f "$manifest_path" ] && grep -Fxq "$file_name" "$manifest_path"
+}
+
 ensure_jq() {
   if command_exists jq; then return 0; fi
   echo "📦 正在安装 jq..." >&2
@@ -323,6 +394,9 @@ download_singbox() {
   local FILENAME="sing-box-${version}-linux-${arch}.tar.gz"
   local DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/v${version}/${FILENAME}"
   local EXTRACTED_DIR="sing-box-${version}-linux-${arch}"
+  local EXPECTED_DIGEST=""
+  local EXPECTED_SHA256=""
+  local ACTUAL_SHA256=""
   
   echo "⬇️ 正在下载 sing-box v${version} (${arch})..." >&2
   
@@ -338,6 +412,30 @@ download_singbox() {
       echo "❌ 下载的文件为空或不存在" >&2
       exit 1
     fi
+
+    EXPECTED_DIGEST=$(get_release_asset_digest "$version" "$FILENAME")
+    case "$EXPECTED_DIGEST" in
+      sha256:*)
+        EXPECTED_SHA256="${EXPECTED_DIGEST#sha256:}"
+        ;;
+      "")
+        echo "❌ 未找到发行包校验信息，下载中止" >&2
+        exit 1
+        ;;
+      *)
+        echo "❌ 不支持的发行包摘要格式: $EXPECTED_DIGEST" >&2
+        exit 1
+        ;;
+    esac
+
+    ACTUAL_SHA256=$(sha256_file "$FILENAME") || exit 1
+    if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+      echo "❌ 下载文件校验失败" >&2
+      echo "💡 期望: $EXPECTED_SHA256" >&2
+      echo "💡 实际: $ACTUAL_SHA256" >&2
+      exit 1
+    fi
+    echo "✅ 下载文件校验通过" >&2
     
     echo "📦 正在解压..." >&2
     tar -xzf "$FILENAME"
@@ -352,6 +450,7 @@ download_singbox() {
 
     # 保留发行包中的伴随文件，例如 libcronet.so。
     cp -af "$EXTRACTED_DIR"/. .
+    write_release_manifest "$EXTRACTED_DIR" "$dest_dir/$RELEASE_MANIFEST"
     chmod +x sing-box
     rm -rf "$EXTRACTED_DIR" "$FILENAME"
   ) || return 1
@@ -444,6 +543,15 @@ rollback_release_files() {
       fi
     fi
   done
+
+  if [ -e "$backup_dir/$RELEASE_MANIFEST" ] || [ -L "$backup_dir/$RELEASE_MANIFEST" ]; then
+    cp -af "$backup_dir/$RELEASE_MANIFEST" "$INSTALL_DIR/$RELEASE_MANIFEST" || {
+      echo "❌ 回滚失败：无法恢复文件 $RELEASE_MANIFEST" >&2
+      return 1
+    }
+  else
+    rm -f "$INSTALL_DIR/$RELEASE_MANIFEST" 2>/dev/null || true
+  fi
 
   chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
   chown -R nobody:nobody "$INSTALL_DIR" 2>/dev/null || true
@@ -567,18 +675,15 @@ EOF
 
 install_default() {
   local input_port="$1"
-  local PKG_MANAGER=""
   local INSTALL_CMD=""
   local UPDATE_CMD=""
   
   if [ "$(id -u)" != "0" ]; then echo "❌ 请使用 root 权限运行该脚本"; exit 1; fi
   
   if [ -x "$(command -v apt-get)" ]; then
-    PKG_MANAGER="apt-get"
     INSTALL_CMD="apt-get install -y"
     UPDATE_CMD="apt-get update"
   elif [ -x "$(command -v dnf)" ]; then
-    PKG_MANAGER="dnf"
     INSTALL_CMD="dnf install -y"
     UPDATE_CMD="dnf makecache"
   else
@@ -726,8 +831,7 @@ run_update() {
     ensure_alpine_github_dependencies || exit 1
   fi
   
-  local CURRENT_BIN=""
-  if ! CURRENT_BIN=$(get_singbox_binary); then
+  if ! get_singbox_binary >/dev/null 2>&1; then
     echo "❌ 未找到 sing-box，请先安装"
     exit 1
   fi
@@ -757,9 +861,12 @@ run_update() {
   local STAGE_DIR=$(mktemp -d /tmp/sing-box-update.XXXXXX)
   local STAGED_BIN="$STAGE_DIR/sing-box"
   local BACKUP_DIR=$(mktemp -d /tmp/sing-box-backup.XXXXXX)
+  local CURRENT_FILES_TMP=$(mktemp /tmp/sing-box-current-files.XXXXXX)
+  local NEW_FILES_TMP=$(mktemp /tmp/sing-box-new-files.XXXXXX)
+  local ALL_FILES_TMP=$(mktemp /tmp/sing-box-all-files.XXXXXX)
   local -a RELEASE_FILES=()
   
-  trap 'rm -rf "$STAGE_DIR" "$BACKUP_DIR"' EXIT INT TERM
+  trap 'rm -rf "$STAGE_DIR" "$BACKUP_DIR" "$CURRENT_FILES_TMP" "$NEW_FILES_TMP" "$ALL_FILES_TMP"' EXIT INT TERM
   
   echo "⬇️  下载并预校验新版本..."
   if ! download_singbox "$LATEST_VERSION" "$ARCH" "$STAGE_DIR"; then
@@ -772,13 +879,13 @@ run_update() {
     exit 1
   fi
   
-  local staged_file=""
-  for staged_file in "$STAGE_DIR"/*; do
-    [ -e "$staged_file" ] || continue
-    if [ -f "$staged_file" ] || [ -L "$staged_file" ]; then
-      RELEASE_FILES+=("$(basename "$staged_file")")
-    fi
-  done
+  get_release_file_list "$INSTALL_DIR" > "$CURRENT_FILES_TMP"
+  get_release_file_list "$STAGE_DIR" > "$NEW_FILES_TMP"
+  cat "$CURRENT_FILES_TMP" "$NEW_FILES_TMP" | sed '/^$/d' | sort -u > "$ALL_FILES_TMP"
+
+  while IFS= read -r file_name; do
+    [ -n "$file_name" ] && RELEASE_FILES+=("$file_name")
+  done < "$ALL_FILES_TMP"
 
   if [ "${#RELEASE_FILES[@]}" -eq 0 ]; then
     echo "❌ 未找到可部署的发行包文件，更新中止"
@@ -790,9 +897,12 @@ run_update() {
     echo "❌ 停止服务失败，更新中止"
     exit 1
   fi
+
+  if [ -f "$INSTALL_DIR/$RELEASE_MANIFEST" ] || [ -L "$INSTALL_DIR/$RELEASE_MANIFEST" ]; then
+    cp -af "$INSTALL_DIR/$RELEASE_MANIFEST" "$BACKUP_DIR/$RELEASE_MANIFEST"
+  fi
   
   echo "🔁 正在替换发行包文件..."
-  local file_name=""
   for file_name in "${RELEASE_FILES[@]}"; do
     if [ -e "$INSTALL_DIR/$file_name" ] || [ -L "$INSTALL_DIR/$file_name" ]; then
       if ! cp -af "$INSTALL_DIR/$file_name" "$BACKUP_DIR/$file_name"; then
@@ -801,13 +911,21 @@ run_update() {
         exit 1
       fi
     fi
-    if ! cp -af "$STAGE_DIR/$file_name" "$INSTALL_DIR/$file_name"; then
+    if manifest_has_file "$NEW_FILES_TMP" "$file_name" && ! cp -af "$STAGE_DIR/$file_name" "$INSTALL_DIR/$file_name"; then
       echo "❌ 替换文件 $file_name 失败，正在回滚..."
       rollback_release_files "$BACKUP_DIR" "${RELEASE_FILES[@]}" || true
       start_service || true
       exit 1
     fi
   done
+
+  for file_name in "${RELEASE_FILES[@]}"; do
+    if ! manifest_has_file "$NEW_FILES_TMP" "$file_name"; then
+      rm -rf "$INSTALL_DIR/$file_name" 2>/dev/null || true
+    fi
+  done
+
+  cp -af "$STAGE_DIR/$RELEASE_MANIFEST" "$INSTALL_DIR/$RELEASE_MANIFEST"
   
   # 恢复文件权限
   chown -R nobody:nogroup "$INSTALL_DIR" 2>/dev/null || \
@@ -857,7 +975,7 @@ run_update() {
   
   echo "✅ 服务启动成功"
   trap - EXIT INT TERM
-  rm -rf "$STAGE_DIR" "$BACKUP_DIR"
+  rm -rf "$STAGE_DIR" "$BACKUP_DIR" "$CURRENT_FILES_TMP" "$NEW_FILES_TMP" "$ALL_FILES_TMP"
   
   echo ""
   echo "🎉 sing-box 更新完成！"
