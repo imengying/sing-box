@@ -48,20 +48,11 @@ detect_architecture() {
   esac
 }
 
-detect_system() {
-  if command -v apk >/dev/null 2>&1; then
-    echo "alpine"; return
+is_alpine_system() {
+  if command_exists apk; then
+    return 0
   fi
-  if [ -f /etc/os-release ] && grep -qi 'alpine' /etc/os-release; then
-    echo "alpine"; return
-  fi
-  if [ -f /etc/debian_version ]; then
-    echo "debian"; return
-  fi
-  if [ -f /etc/redhat-release ]; then
-    echo "redhat"; return
-  fi
-  echo "default"
+  [ -f /etc/os-release ] && grep -qi 'alpine' /etc/os-release
 }
 
 get_service_type() {
@@ -73,32 +64,33 @@ get_service_type() {
 
 validate_port() {
   local input_port="$1"
-  local rand_u16=""
   if [ -z "$input_port" ]; then
-    rand_u16=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d " ")
-    [ -z "$rand_u16" ] && rand_u16=$(date +%s)
-    echo $((1025 + (rand_u16 % 64510)))
+    random_port
     return 0
   fi
   
   case "$input_port" in
     *[!0-9]*)
       echo "⚠️ 非法端口 \"$input_port\"，将随机分配。" >&2
-      rand_u16=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d " ")
-      [ -z "$rand_u16" ] && rand_u16=$(date +%s)
-      echo $((1025 + (rand_u16 % 64510)))
+      random_port
       ;;
     *)
       if [ "$input_port" -ge 1 ] && [ "$input_port" -le 65535 ]; then
         echo "$input_port"
       else
         echo "⚠️ 端口超出范围(1–65535)，将随机分配。" >&2
-        rand_u16=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d " ")
-        [ -z "$rand_u16" ] && rand_u16=$(date +%s)
-        echo $((1025 + (rand_u16 % 64510)))
+        random_port
       fi
       ;;
   esac
+}
+
+random_port() {
+  local rand_u16=""
+
+  rand_u16=$(od -An -N2 -tu2 /dev/urandom 2>/dev/null | tr -d " ")
+  [ -z "$rand_u16" ] && rand_u16=$(date +%s)
+  echo $((1025 + (rand_u16 % 64510)))
 }
 
 generate_vless_config() {
@@ -579,8 +571,96 @@ generate_reality_keypair() {
   printf '%s\n%s\n' "$private_key" "$public_key"
 }
 
+save_public_key() {
+  local public_key="$1"
+
+  echo "$public_key" > "$INSTALL_DIR/public.key"
+  chmod 600 "$INSTALL_DIR/public.key"
+}
+
+prepare_install_artifacts() {
+  local version="$1"
+  local arch="$2"
+  local input_port="$3"
+  local keys=""
+  local private_key=""
+  local public_key=""
+  local uuid=""
+  local port=""
+
+  mkdir -p "$INSTALL_DIR"
+  download_singbox "$version" "$arch" "$INSTALL_DIR" || return 1
+
+  echo "🔐 正在生成密钥..." >&2
+  if ! keys=$(generate_reality_keypair "$INSTALL_DIR/sing-box"); then
+    return 1
+  fi
+  private_key=$(printf '%s\n' "$keys" | sed -n '1p')
+  public_key=$(printf '%s\n' "$keys" | sed -n '2p')
+  uuid=$(uuidgen)
+
+  port=$(validate_port "$input_port")
+  echo "📍 使用端口: $port" >&2
+
+  echo "⚙️ 正在生成配置文件..." >&2
+  generate_vless_config "$uuid" "$private_key" "$port" "$INSTALL_DIR/config.json"
+  save_public_key "$public_key"
+
+  printf '%s\n%s\n%s\n' "$uuid" "$port" "$public_key"
+}
+
+ensure_service_started() {
+  local stype="$(get_service_type)"
+
+  sleep 2
+  if is_service_active; then
+    return 0
+  fi
+
+  echo "❌ sing-box 服务启动失败，请检查状态" >&2
+  case "$stype" in
+    systemd) systemctl status sing-box --no-pager || true ;;
+    openrc) rc-service sing-box status || true ;;
+  esac
+  return 1
+}
+
+print_install_result() {
+  local uuid="$1"
+  local port="$2"
+  local public_key="$3"
+  local service_hint="$4"
+  local log_hint="$5"
+  local domain_or_ip=""
+  local vless_url=""
+
+  echo ""
+  echo "==========================================" >&2
+  domain_or_ip=$(detect_public_ip)
+  vless_url=$(generate_vless_url "$uuid" "$domain_or_ip" "$port" "$public_key")
+
+  echo "==========================================" >&2
+  echo "✅ sing-box 安装并运行成功！" >&2
+  echo "==========================================" >&2
+  echo "" >&2
+  echo "📦 当前版本: $(get_current_version)" >&2
+  echo "📋 VLESS 链接：" >&2
+  echo "$vless_url"
+  echo "" >&2
+  echo "💾 配置文件位置: $INSTALL_DIR/config.json" >&2
+  echo "🔧 服务管理: $service_hint" >&2
+  [ -n "$log_hint" ] && echo "$log_hint" >&2
+  echo "==========================================" >&2
+}
+
 install_alpine() {
   local input_port="$1"
+  local VERSION=""
+  local ARCH=""
+  local INSTALL_INFO=""
+  local UUID=""
+  local PORT=""
+  local PUBLIC_KEY=""
   
   if [ "$(id -u)" != "0" ]; then echo "❌ 请使用 root 权限运行该脚本"; exit 1; fi
   
@@ -597,33 +677,16 @@ install_alpine() {
     fi
   fi
   
-  mkdir -p "$INSTALL_DIR"
   ensure_alpine_github_dependencies || exit 1
 
-  local ARCH=$(detect_architecture) || exit 1
-  local VERSION=$(get_latest_version) || exit 1
-
-  download_singbox "$VERSION" "$ARCH" "$INSTALL_DIR" || exit 1
-  local BIN_PATH="$INSTALL_DIR/sing-box"
-  
-  echo "🔐 正在生成密钥..." >&2
-  local KEYS=""
-  if ! KEYS=$(generate_reality_keypair "$BIN_PATH"); then
+  ARCH=$(detect_architecture) || exit 1
+  VERSION=$(get_latest_version) || exit 1
+  if ! INSTALL_INFO=$(prepare_install_artifacts "$VERSION" "$ARCH" "$input_port"); then
     exit 1
   fi
-  local PRIVATE_KEY=$(printf '%s\n' "$KEYS" | sed -n '1p')
-  local PUBLIC_KEY=$(printf '%s\n' "$KEYS" | sed -n '2p')
-  local UUID=$(uuidgen)
-  
-  local PORT=$(validate_port "$input_port")
-  echo "📍 使用端口: $PORT" >&2
-  
-  echo "⚙️ 正在生成配置文件..." >&2
-  generate_vless_config "$UUID" "$PRIVATE_KEY" "$PORT" "$INSTALL_DIR/config.json"
-  
-  # 保存公钥到独立文件，方便后续查看
-  echo "$PUBLIC_KEY" > "$INSTALL_DIR/public.key"
-  chmod 600 "$INSTALL_DIR/public.key"
+  UUID=$(printf '%s\n' "$INSTALL_INFO" | sed -n '1p')
+  PORT=$(printf '%s\n' "$INSTALL_INFO" | sed -n '2p')
+  PUBLIC_KEY=$(printf '%s\n' "$INSTALL_INFO" | sed -n '3p')
   
   echo "🔧 正在配置 OpenRC 服务..."
   cat > /etc/init.d/sing-box <<EOF
@@ -648,35 +711,23 @@ EOF
   rc-update add sing-box default
   rc-service sing-box restart >/dev/null 2>&1 || rc-service sing-box start
   
-  sleep 2
-  if ! is_service_active; then
-    echo "❌ sing-box 服务启动失败，请检查状态" >&2
-    rc-service sing-box status || true
+  if ! ensure_service_started; then
     exit 1
   fi
   
-  echo ""
-  echo "==========================================" >&2
-  local DOMAIN_OR_IP=$(detect_public_ip)
-  local VLESS_URL=$(generate_vless_url "$UUID" "$DOMAIN_OR_IP" "$PORT" "$PUBLIC_KEY")
-  
-  echo "==========================================" >&2
-  echo "✅ sing-box 安装并运行成功！" >&2
-  echo "==========================================" >&2
-  echo "" >&2
-  echo "📦 当前版本: $(get_current_version)" >&2
-  echo "📋 VLESS 链接：" >&2
-  echo "$VLESS_URL"
-  echo "" >&2
-  echo "💾 配置文件位置: $INSTALL_DIR/config.json" >&2
-  echo "🔧 服务管理: rc-service sing-box [start|stop|restart|status]" >&2
-  echo "==========================================" >&2
+  print_install_result "$UUID" "$PORT" "$PUBLIC_KEY" "rc-service sing-box [start|stop|restart|status]" ""
 }
 
 install_default() {
   local input_port="$1"
   local INSTALL_CMD=""
   local UPDATE_CMD=""
+  local VERSION=""
+  local ARCH=""
+  local INSTALL_INFO=""
+  local UUID=""
+  local PORT=""
+  local PUBLIC_KEY=""
   
   if [ "$(id -u)" != "0" ]; then echo "❌ 请使用 root 权限运行该脚本"; exit 1; fi
   
@@ -717,30 +768,14 @@ install_default() {
     fi
   fi
   
-  local ARCH=$(detect_architecture) || exit 1
-  local VERSION=$(get_latest_version) || exit 1
-  
-  mkdir -p "$INSTALL_DIR"
-  download_singbox "$VERSION" "$ARCH" "$INSTALL_DIR" || exit 1
-  
-  echo "🔐 正在生成密钥..." >&2
-  local KEYS=""
-  if ! KEYS=$(generate_reality_keypair "$INSTALL_DIR/sing-box"); then
+  ARCH=$(detect_architecture) || exit 1
+  VERSION=$(get_latest_version) || exit 1
+  if ! INSTALL_INFO=$(prepare_install_artifacts "$VERSION" "$ARCH" "$input_port"); then
     exit 1
   fi
-  local PRIVATE_KEY=$(printf '%s\n' "$KEYS" | sed -n '1p')
-  local PUBLIC_KEY=$(printf '%s\n' "$KEYS" | sed -n '2p')
-  local UUID=$(uuidgen)
-  
-  local PORT=$(validate_port "$input_port")
-  echo "📍 使用端口: $PORT" >&2
-  
-  echo "⚙️ 正在生成配置文件..." >&2
-  generate_vless_config "$UUID" "$PRIVATE_KEY" "$PORT" "$INSTALL_DIR/config.json"
-  
-  # 保存公钥到独立文件，方便后续查看
-  echo "$PUBLIC_KEY" > "$INSTALL_DIR/public.key"
-  chmod 600 "$INSTALL_DIR/public.key"
+  UUID=$(printf '%s\n' "$INSTALL_INFO" | sed -n '1p')
+  PORT=$(printf '%s\n' "$INSTALL_INFO" | sed -n '2p')
+  PUBLIC_KEY=$(printf '%s\n' "$INSTALL_INFO" | sed -n '3p')
   
   echo "🔧 正在配置 systemd 服务..."
   cat > /etc/systemd/system/sing-box.service <<EOF
@@ -773,33 +808,18 @@ EOF
   systemctl enable sing-box
   systemctl start sing-box
   
-  sleep 2
-  if ! is_service_active; then
-    echo "❌ sing-box 服务启动失败，请检查状态" >&2
-    systemctl status sing-box --no-pager || true
+  if ! ensure_service_started; then
     exit 1
   fi
   
-  echo ""
-  echo "==========================================" >&2
-  local DOMAIN_OR_IP=$(detect_public_ip)
-  local VLESS_URL=$(generate_vless_url "$UUID" "$DOMAIN_OR_IP" "$PORT" "$PUBLIC_KEY")
-  
-  echo "==========================================" >&2
-  echo "✅ sing-box 安装并运行成功！" >&2
-  echo "==========================================" >&2
-  echo "" >&2
-  echo "📋 VLESS 链接：" >&2
-  echo "$VLESS_URL"
-  echo "" >&2
-  echo "💾 配置文件位置: $INSTALL_DIR/config.json" >&2
-  echo "🔧 服务管理: systemctl [start|stop|restart|status] sing-box" >&2
-  echo "📊 查看日志: journalctl -u sing-box -f" >&2
-  echo "==========================================" >&2
+  print_install_result "$UUID" "$PORT" "$PUBLIC_KEY" "systemctl [start|stop|restart|status] sing-box" "📊 查看日志: journalctl -u sing-box -f"
 }
 
 run_config() {
-  local sys="$(detect_system)"
+  local sys="default"
+  if is_alpine_system; then
+    sys="alpine"
+  fi
   echo "🧭 系统识别: ${sys}"
   echo "---------------------------------------"
   local INPUT_PORT=""
@@ -816,7 +836,7 @@ run_config() {
   echo "🛠️ 正在执行配置..."
   echo ""
   
-  if [ "$sys" = "alpine" ]; then
+  if is_alpine_system; then
     install_alpine "$INPUT_PORT"
   else
     install_default "$INPUT_PORT"
@@ -827,7 +847,7 @@ run_update() {
   echo "⬆️  正在执行 sing-box 一键更新..."
   require_root
 
-  if [ "$(detect_system)" = "alpine" ]; then
+  if is_alpine_system; then
     ensure_alpine_github_dependencies || exit 1
   fi
   
