@@ -265,20 +265,9 @@ get_release_asset_digest() {
 }
 
 write_release_manifest() {
-  local source_dir="$1"
-  local manifest_path="$2"
-  local entry=""
-  local file_name=""
+  local manifest_path="$1"
 
-  : > "$manifest_path"
-  for entry in "$source_dir"/*; do
-    [ -e "$entry" ] || continue
-    if [ -f "$entry" ] || [ -L "$entry" ]; then
-      file_name=$(basename "$entry")
-      printf '%s\n' "$file_name" >> "$manifest_path"
-    fi
-  done
-  sort -u "$manifest_path" -o "$manifest_path"
+  printf '%s\n' "sing-box" > "$manifest_path"
 }
 
 get_release_file_list() {
@@ -440,10 +429,9 @@ download_singbox() {
       exit 1
     fi
 
-    # 保留发行包中的伴随文件，例如 libcronet.so。
-    cp -af "$EXTRACTED_DIR"/. .
-    write_release_manifest "$EXTRACTED_DIR" "$dest_dir/$RELEASE_MANIFEST"
+    cp -af "$EXTRACTED_DIR/sing-box" ./sing-box
     chmod +x sing-box
+    write_release_manifest "$dest_dir/$RELEASE_MANIFEST"
     rm -rf "$EXTRACTED_DIR" "$FILENAME"
   ) || return 1
   
